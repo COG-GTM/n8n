@@ -9,6 +9,7 @@ import {
 	buildCredentialDestinationGrantKey,
 	credentialDestinationSchema,
 	TEMPLATED_CUSTOM_AUTH_CREDENTIAL_TYPE,
+	buildWorkflowActionSessionGrantKey,
 } from '@n8n/api-types';
 import type { InstanceAiApprovalDetails } from '@n8n/api-types';
 import { Tool } from '@n8n/agents';
@@ -397,6 +398,23 @@ export const workflowsResumeSchema = setupResumeSchema;
 interface WorkflowToolContext {
 	resumeData: z.infer<typeof workflowsResumeSchema> | undefined;
 	suspend: (payload: z.infer<typeof suspendSchema>) => Promise<never>;
+}
+
+type ApprovalResumeData = WorkflowToolContext['resumeData'];
+
+function hasSessionGrant(context: InstanceAiContext, grantKey: string): boolean {
+	return context.sessionApprovedToolKeys?.has(grantKey) === true;
+}
+
+/** "Always allow" stores a thread grant, so later calls with the same key skip the approval. */
+async function persistSessionGrantIfRequested(
+	context: InstanceAiContext,
+	resumeData: ApprovalResumeData,
+	grantKey: string,
+): Promise<void> {
+	if (resumeData?.approved && resumeData.scope === 'session') {
+		await context.grantSessionToolApproval?.(grantKey);
+	}
 }
 
 // ── Input type ──────────────────────────────────────────────────────────────
@@ -932,7 +950,9 @@ async function handleDelete(
 		return { success: false, denied: true, reason: 'Action blocked by admin' };
 	}
 
-	const needsApproval = context.permissions?.deleteWorkflow !== 'always_allow';
+	const grantKey = buildWorkflowActionSessionGrantKey('delete', input.workflowId);
+	const needsApproval =
+		context.permissions?.deleteWorkflow !== 'always_allow' && !hasSessionGrant(context, grantKey);
 
 	// First call — suspend for confirmation (unless always_allow)
 	if (needsApproval && (resumeData === undefined || resumeData === null)) {
@@ -956,6 +976,8 @@ async function handleDelete(
 		return { success: false, denied: true, reason: 'User denied the action' };
 	}
 
+	await persistSessionGrantIfRequested(context, resumeData, grantKey);
+
 	await context.workflowService.archive(input.workflowId);
 	await refreshWorkflowSourceFileBindingFromWorkflow(context, input.workflowId);
 	return { success: true };
@@ -972,7 +994,9 @@ async function handleUnarchive(
 		return { success: false, denied: true, reason: 'Action blocked by admin' };
 	}
 
-	const needsApproval = context.permissions?.deleteWorkflow !== 'always_allow';
+	const grantKey = buildWorkflowActionSessionGrantKey('unarchive', input.workflowId);
+	const needsApproval =
+		context.permissions?.deleteWorkflow !== 'always_allow' && !hasSessionGrant(context, grantKey);
 
 	if (needsApproval && (resumeData === undefined || resumeData === null)) {
 		await context.assertInThreadProject?.({ kind: 'workflow', id: input.workflowId });
@@ -993,6 +1017,8 @@ async function handleUnarchive(
 	if (resumeData !== undefined && resumeData !== null && !resumeData.approved) {
 		return { success: false, denied: true, reason: 'User denied the action' };
 	}
+
+	await persistSessionGrantIfRequested(context, resumeData, grantKey);
 
 	await context.workflowService.unarchive(input.workflowId);
 	await refreshWorkflowSourceFileBindingFromWorkflow(context, input.workflowId);
@@ -1951,8 +1977,12 @@ async function handlePublish(
 	const verification = await resolveUnverifiedPublishDisclosure(context, input.workflowId);
 	const unverifiedDisclosure = verification?.message;
 
+	const grantKey = buildWorkflowActionSessionGrantKey('publish', input.workflowId);
+	// An unverified workflow asks every time, even with a grant.
 	const needsApproval =
-		context.permissions?.publishWorkflow !== 'always_allow' || unverifiedDisclosure !== undefined;
+		(context.permissions?.publishWorkflow !== 'always_allow' &&
+			!hasSessionGrant(context, grantKey)) ||
+		unverifiedDisclosure !== undefined;
 
 	if (unverifiedDisclosure && input.acknowledgeUnverified !== true) {
 		return {
@@ -1996,6 +2026,8 @@ async function handlePublish(
 	if (resumeData !== undefined && resumeData !== null && !resumeData.approved) {
 		return { success: false, denied: true, reason: 'User denied the action' };
 	}
+
+	await persistSessionGrantIfRequested(context, resumeData, grantKey);
 
 	try {
 		const previousActiveVersionIds = await snapshotActiveVersionIds(context, [
@@ -2130,7 +2162,9 @@ async function handleUnpublish(
 		return { success: false, denied: true, reason: 'Action blocked by admin' };
 	}
 
-	const needsApproval = context.permissions?.publishWorkflow !== 'always_allow';
+	const grantKey = buildWorkflowActionSessionGrantKey('unpublish', input.workflowId);
+	const needsApproval =
+		context.permissions?.publishWorkflow !== 'always_allow' && !hasSessionGrant(context, grantKey);
 
 	if (needsApproval && (resumeData === undefined || resumeData === null)) {
 		await context.assertInThreadProject?.({ kind: 'workflow', id: input.workflowId });
@@ -2151,6 +2185,8 @@ async function handleUnpublish(
 	if (resumeData !== undefined && resumeData !== null && !resumeData.approved) {
 		return { success: false, denied: true, reason: 'User denied the action' };
 	}
+
+	await persistSessionGrantIfRequested(context, resumeData, grantKey);
 
 	try {
 		await context.workflowService.unpublish(input.workflowId);
@@ -2186,7 +2222,10 @@ async function handleRestoreVersion(
 		return { success: false, denied: true, reason: 'Action blocked by admin' };
 	}
 
-	const needsApproval = context.permissions?.restoreWorkflowVersion !== 'always_allow';
+	const grantKey = buildWorkflowActionSessionGrantKey('restore-version', input.workflowId);
+	const needsApproval =
+		context.permissions?.restoreWorkflowVersion !== 'always_allow' &&
+		!hasSessionGrant(context, grantKey);
 
 	if (needsApproval && (resumeData === undefined || resumeData === null)) {
 		await context.assertInThreadProject?.({ kind: 'workflow', id: input.workflowId });
@@ -2216,6 +2255,8 @@ async function handleRestoreVersion(
 	if (resumeData !== undefined && resumeData !== null && !resumeData.approved) {
 		return { success: false, denied: true, reason: 'User denied the action' };
 	}
+
+	await persistSessionGrantIfRequested(context, resumeData, grantKey);
 
 	try {
 		const restored = await context.workflowService.restoreVersion!(
@@ -2260,7 +2301,9 @@ async function handleUpdateVersion(
 		return { success: false, denied: true, reason: 'Action blocked by admin' };
 	}
 
-	const needsApproval = context.permissions?.updateWorkflow !== 'always_allow';
+	const grantKey = buildWorkflowActionSessionGrantKey('update-version', input.workflowId);
+	const needsApproval =
+		context.permissions?.updateWorkflow !== 'always_allow' && !hasSessionGrant(context, grantKey);
 
 	if (needsApproval && (resumeData === undefined || resumeData === null)) {
 		await context.assertInThreadProject?.({ kind: 'workflow', id: input.workflowId });
@@ -2289,6 +2332,8 @@ async function handleUpdateVersion(
 	if (resumeData !== undefined && resumeData !== null && !resumeData.approved) {
 		return { success: false, denied: true, reason: 'User denied the action' };
 	}
+
+	await persistSessionGrantIfRequested(context, resumeData, grantKey);
 
 	try {
 		await context.workflowService.updateVersion!(input.workflowId, input.versionId, {

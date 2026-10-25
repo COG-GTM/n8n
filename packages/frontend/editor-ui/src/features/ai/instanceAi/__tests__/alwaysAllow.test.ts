@@ -92,8 +92,31 @@ describe('buildAlwaysAllowKey', () => {
 	});
 
 	it('falls back to the tool and the action for other tools', () => {
-		expect(buildAlwaysAllowKey('workflow_builder_workflows', { action: 'publish' })).toBe(
-			'workflow_builder_workflows:publish',
+		expect(buildAlwaysAllowKey('skills', { action: 'create' })).toBe('skills:create');
+	});
+
+	it.each(['delete', 'unarchive', 'publish', 'unpublish', 'restore-version', 'update-version'])(
+		'matches the backend per-workflow grant for the workflows %s action',
+		(action) => {
+			expect(
+				buildAlwaysAllowKey('workflow_builder_workflows', { action, workflowId: 'wf-1' }),
+			).toBe(`workflows:${action}:wf-1`);
+		},
+	);
+
+	it('takes the workflow from the confirmation when the arguments have none', () => {
+		expect(buildAlwaysAllowKey('workflow_builder_workflows', { action: 'publish' }, 'wf-2')).toBe(
+			'workflows:publish:wf-2',
+		);
+	});
+
+	it('stores no key for a workflow action without a workflow', () => {
+		expect(buildAlwaysAllowKey('workflow_builder_workflows', { action: 'publish' })).toBeNull();
+	});
+
+	it('matches the backend grant for a workspace action', () => {
+		expect(buildAlwaysAllowKey('workspace', { action: 'tag-workflow' })).toBe(
+			'workspace:tag-workflow',
 		);
 	});
 });

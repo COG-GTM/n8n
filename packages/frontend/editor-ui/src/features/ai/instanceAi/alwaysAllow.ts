@@ -4,12 +4,24 @@ import {
 	buildRunStepSessionGrantKey,
 	buildRunWorkflowSessionGrantKey,
 	buildUpdateWorkflowSessionGrantKey,
+	buildWorkflowActionSessionGrantKey,
+	buildWorkspaceSessionGrantKey,
 	resolveBuilderToolName,
 	REMOVED_BUILDER_TOOL_NAMES,
 	SHARED_BUILDER_TOOL_NAMES,
 	WORKFLOW_BUILDER_TOOL_NAMES,
 } from '@n8n/api-types';
 import { isRecord } from '@n8n/utils/is-record';
+
+/** Workflow tool actions whose approval the backend stores as a per-workflow grant. */
+const WORKFLOW_GRANT_ACTIONS = new Set([
+	'delete',
+	'unarchive',
+	'publish',
+	'unpublish',
+	'restore-version',
+	'update-version',
+]);
 
 // Session "Always allow" keys. They match the thread grants that the backend
 // persists, so a UI key and a stored grant name the same permission. Both
@@ -68,6 +80,15 @@ export function buildAlwaysAllowKey(
 	) {
 		if (!workflowId) return null;
 		return buildUpdateWorkflowSessionGrantKey(workflowId);
+	}
+	// Other gated workflow actions, such as publish, are per-workflow too, matching the
+	// backend `workflows:<action>:<id>` thread grant. Without an ID, fail closed.
+	if (toolName === WORKFLOW_BUILDER_TOOL_NAMES.WORKFLOWS && WORKFLOW_GRANT_ACTIONS.has(action)) {
+		if (!workflowId) return null;
+		return buildWorkflowActionSessionGrantKey(action, workflowId);
+	}
+	if (toolName === 'workspace') {
+		return buildWorkspaceSessionGrantKey(action);
 	}
 	if (toolName === SHARED_BUILDER_TOOL_NAMES.DATA_TABLES) {
 		return buildDataTablesSessionGrantKey(action);
