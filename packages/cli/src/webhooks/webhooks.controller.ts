@@ -1,23 +1,59 @@
+import type { FindWebhookResponse } from '@n8n/api-types';
+import { AuthenticatedRequest } from '@n8n/db';
 import { Post, RestController } from '@n8n/decorators';
-import { Request } from 'express';
-import get from 'lodash/get';
+
+import { WorkflowFinderService } from '@/workflows/workflow-finder.service';
 
 import { WebhookService } from './webhook.service';
 import type { Method } from './webhook.types';
 
+const WEBHOOK_METHODS: readonly Method[] = ['DELETE', 'GET', 'HEAD', 'PATCH', 'POST', 'PUT'];
+
+const isWebhookMethod = (method: unknown): method is Method =>
+	typeof method === 'string' && WEBHOOK_METHODS.some((m) => m === method);
+
 @RestController('/webhooks')
 export class WebhooksController {
-	constructor(private readonly webhookService: WebhookService) {}
+	constructor(
+		private readonly webhookService: WebhookService,
+		private readonly workflowFinderService: WorkflowFinderService,
+	) {}
 
+	/**
+	 * Check whether a webhook path and method is already registered.
+	 * The owning workflow and node are only disclosed to users who can read that workflow.
+	 */
 	@Post('/find')
-	async findWebhook(req: Request) {
-		const body = get(req, 'body', {}) as { path: string; method: Method };
+	async findWebhook(
+		req: AuthenticatedRequest<{}, {}, { path?: unknown; method?: unknown }>,
+	): Promise<FindWebhookResponse | null> {
+		const { path, method } = req.body ?? {};
+		if (typeof path !== 'string' || !isWebhookMethod(method)) return null;
 
+		let webhook;
 		try {
-			const webhook = await this.webhookService.findWebhook(body.method, body.path);
-			return webhook;
-		} catch (error) {
+			webhook = await this.webhookService.findWebhook(method, path);
+		} catch {
 			return null;
 		}
+
+		if (!webhook) return null;
+
+		// Access-check failures propagate as request errors: returning `null` would
+		// hide the conflict, and returning metadata would bypass authorization.
+		const workflow = await this.workflowFinderService.findWorkflowForUser(
+			webhook.workflowId,
+			req.user,
+			['workflow:read'],
+		);
+
+		if (!workflow) return { webhookPath: path, method: webhook.method };
+
+		return {
+			workflowId: webhook.workflowId,
+			webhookPath: webhook.webhookPath,
+			method: webhook.method,
+			node: webhook.node,
+		};
 	}
 }

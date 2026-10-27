@@ -1,14 +1,9 @@
-import type { IHttpRequestMethods } from 'n8n-workflow';
+import type { FindWebhookResponse } from '@n8n/api-types';
 
 import type { IRestApiContext } from '../types';
 import { makeRestApiRequest } from '../utils';
 
-type WebhookData = {
-	workflowId: string;
-	webhookPath: string;
-	method: IHttpRequestMethods;
-	node: string;
-};
+export type WebhookData = FindWebhookResponse;
 
 export const findWebhook = async (
 	context: IRestApiContext,

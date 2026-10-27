@@ -9,17 +9,19 @@ import { computed } from 'vue';
 import { CHAT_TRIGGER_NODE_TYPE, FORM_TRIGGER_NODE_TYPE, WEBHOOK_NODE_TYPE } from 'n8n-workflow';
 
 import { N8nButton, N8nCallout, N8nLink, N8nText } from '@n8n/design-system';
+import { useI18n } from '@n8n/i18n';
 const modalBus = createEventBus();
+const i18n = useI18n();
 const uiStore = useUIStore();
 const rootStore = useRootStore();
 
 const props = defineProps<{
 	data: {
-		workflowName: string;
+		workflowName?: string;
 		triggerType: string;
-		workflowId: string;
+		workflowId?: string;
 		webhookPath: string;
-		node: string;
+		node?: string;
 	};
 }>();
 
@@ -29,34 +31,36 @@ const webhookUrl = computed(() => {
 	return rootStore.webhookUrl;
 });
 
-const webhookTypeUi = computed((): { title: string; callout: string; suggestion: string } => {
-	const suggestionBase = 'and activate this one, or ';
+const SUGGESTION_BASE = 'and activate this one, or ';
 
+const webhookTypeUi = computed((): { title: string; callout: string; action: string } => {
 	if (data.triggerType === FORM_TRIGGER_NODE_TYPE)
 		return {
 			title: 'Form',
 			callout: 'form trigger',
-			suggestion: suggestionBase + 'adjust the following URL path in either workflow:',
+			action: 'adjust the following URL path in either workflow:',
 		};
 	if (data.triggerType === CHAT_TRIGGER_NODE_TYPE)
 		return {
 			title: 'Chat',
 			callout: 'chat trigger',
-			suggestion: suggestionBase + 'insert a new Chat Trigger node in either workflow:',
+			action: 'insert a new Chat Trigger node in either workflow:',
 		};
 	if (data.triggerType === WEBHOOK_NODE_TYPE)
 		return {
 			title: 'Webhook',
 			callout: 'webhook trigger',
-			suggestion: suggestionBase + 'adjust the following URL path in either workflow:',
+			action: 'adjust the following URL path in either workflow:',
 		};
 
 	return {
 		title: 'Trigger',
 		callout: 'trigger',
-		suggestion: suggestionBase + 'insert a new trigger node of the same type in either workflow:',
+		action: 'insert a new trigger node of the same type in either workflow:',
 	};
 });
+
+const isConflictingWorkflowAccessible = computed(() => !!data.workflowId);
 
 const workflowUrl = computed(() => {
 	return rootStore.urlBaseEditor + 'workflow/' + data.workflowId;
@@ -76,16 +80,36 @@ const onClick = async () => {
 		:center="true"
 	>
 		<template #content>
-			<N8nCallout theme="danger" data-test-id="conflicting-webhook-callout">
+			<N8nCallout
+				v-if="isConflictingWorkflowAccessible"
+				theme="danger"
+				data-test-id="conflicting-webhook-callout"
+			>
 				A {{ webhookTypeUi.callout }} '{{ data.node }}' in the workflow '{{ data.workflowName }}'
 				uses a conflicting URL path, so this workflow cannot be activated
 			</N8nCallout>
+			<N8nCallout v-else theme="danger" data-test-id="conflicting-webhook-callout">
+				{{
+					i18n.baseText('workflowActivator.conflictingWebhook.inaccessibleWorkflow.callout', {
+						interpolate: { triggerType: webhookTypeUi.callout },
+					})
+				}}
+			</N8nCallout>
 			<div :class="$style.container">
-				<div>
+				<div v-if="!isConflictingWorkflowAccessible">
+					<N8nText color="text-base" data-test-id="conflicting-webhook-suggestion">
+						{{
+							i18n.baseText('workflowActivator.conflictingWebhook.inaccessibleWorkflow.suggestion', {
+								interpolate: { action: webhookTypeUi.action },
+							})
+						}}
+					</N8nText>
+				</div>
+				<div v-else>
 					<N8nText color="text-base"> You can deactivate </N8nText>
 					<N8nLink :to="workflowUrl" :underline="true"> {{ data.workflowName }} </N8nLink>
 					<N8nText color="text-base" data-test-id="conflicting-webhook-suggestion">
-						{{ webhookTypeUi.suggestion }}
+						{{ SUGGESTION_BASE + webhookTypeUi.action }}
 					</N8nText>
 				</div>
 			</div>
