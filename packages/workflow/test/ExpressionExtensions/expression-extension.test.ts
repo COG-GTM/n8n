@@ -267,24 +267,20 @@ describe('Expression Parser', () => {
 		const securityError = (name: string) =>
 			new ExpressionExtensionError(`Cannot access "${name}" due to security concerns`);
 
-		test.each(['constructor', '__proto__', 'prototype', 'getPrototypeOf'])(
-			'extend() rejects %s',
-			(name) => {
-				expect(() => extend(parseInt, name, ['return 1'])).toThrowError(securityError(name));
-				expect(() => extend('x', name, [])).toThrowError(securityError(name));
-				expect(() => extend([], name, [])).toThrowError(securityError(name));
-				expect(() => extend({}, name, [])).toThrowError(securityError(name));
-				expect(() => extend(1, name, [])).toThrowError(securityError(name));
-			},
-		);
+		const unsafeNames = ['constructor', '__proto__', 'prototype', 'getPrototypeOf'];
 
-		test.each(['constructor', '__proto__', 'prototype', 'getPrototypeOf'])(
-			'extendOptional() rejects %s',
-			(name) => {
-				expect(() => extendOptional(Object, name)).toThrowError(securityError(name));
-				expect(() => extendOptional('x', name)).toThrowError(securityError(name));
-			},
-		);
+		test.each(unsafeNames)('extend() rejects %s', (name) => {
+			expect(() => extend(parseInt, name, ['return 1'])).toThrowError(securityError(name));
+			expect(() => extend('x', name, [])).toThrowError(securityError(name));
+			expect(() => extend([], name, [])).toThrowError(securityError(name));
+			expect(() => extend({}, name, [])).toThrowError(securityError(name));
+			expect(() => extend(1, name, [])).toThrowError(securityError(name));
+		});
+
+		test.each(unsafeNames)('extendOptional() rejects %s', (name) => {
+			expect(() => extendOptional(Object, name)).toThrowError(securityError(name));
+			expect(() => extendOptional('x', name)).toThrowError(securityError(name));
+		});
 
 		test('rejects non-string function names', () => {
 			expect(() => extend(parseInt, ['constructor'] as unknown as string, [])).toThrowError(
@@ -296,17 +292,13 @@ describe('Expression Parser', () => {
 			const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 			const holder = { make: Function, makeAsync: AsyncFunction };
 			expect(() => extend(holder, 'make', ['return 1'])).toThrowError(securityError('make'));
-			expect(() => extendOptional(holder, 'makeAsync')).toThrowError(
-				securityError('makeAsync'),
-			);
+			expect(() => extendOptional(holder, 'makeAsync')).toThrowError(securityError('makeAsync'));
 		});
 
 		test('does not resolve inherited Object.prototype members of extension maps', () => {
 			expect(() => extend('x', 'hasOwnProperty', [])).not.toThrow();
 			expect(extend('x', 'hasOwnProperty', ['length'])).toBe(true);
-			expect(() => extend(undefined, '__defineGetter__', [])).toThrowError(
-				ExpressionExtensionError,
-			);
+			expect(() => extend(undefined, '__defineGetter__', [])).toThrowError(ExpressionExtensionError);
 		});
 
 		test('still allows native and extended methods', () => {
