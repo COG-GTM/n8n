@@ -160,6 +160,80 @@ describe('ActiveExecutions', () => {
 		expect(activeExecutions.getActiveExecutions()).toHaveLength(1);
 	});
 
+	describe('claimForResume', () => {
+		test('Should atomically mark a new or waiting execution as running', async () => {
+			await expect(
+				activeExecutions.claimForResume(FAKE_SECOND_EXECUTION_ID, executionData),
+			).resolves.toBe(true);
+
+			expect(executionRepository.updateExistingExecution).toHaveBeenCalledWith(
+				FAKE_SECOND_EXECUTION_ID,
+				{ status: 'running' },
+				{ requireStatus: ['new', 'waiting'] },
+			);
+		});
+
+		test('Should return false if the execution was already claimed', async () => {
+			executionRepository.updateExistingExecution.mockResolvedValueOnce(false);
+
+			await expect(
+				activeExecutions.claimForResume(FAKE_SECOND_EXECUTION_ID, executionData),
+			).resolves.toBe(false);
+		});
+
+		test('Should not claim again when adding the claimed execution data', async () => {
+			await activeExecutions.claimForResume(FAKE_SECOND_EXECUTION_ID, executionData);
+			executionRepository.updateExistingExecution.mockClear();
+
+			await activeExecutions.add(executionData, FAKE_SECOND_EXECUTION_ID);
+
+			expect(executionRepository.updateExistingExecution).toHaveBeenCalledWith(
+				FAKE_SECOND_EXECUTION_ID,
+				expect.objectContaining({ status: 'running', waitTill: null }),
+				{},
+			);
+			expect(activeExecutions.has(FAKE_SECOND_EXECUTION_ID)).toBe(true);
+		});
+
+		test('Should still claim when another caller adds a claimed execution', async () => {
+			await activeExecutions.claimForResume(FAKE_SECOND_EXECUTION_ID, executionData);
+			executionRepository.updateExistingExecution.mockResolvedValueOnce(false);
+
+			await expect(
+				activeExecutions.add({ ...executionData }, FAKE_SECOND_EXECUTION_ID),
+			).rejects.toThrow(ExecutionAlreadyResumedError);
+
+			expect(executionRepository.updateExistingExecution).toHaveBeenLastCalledWith(
+				FAKE_SECOND_EXECUTION_ID,
+				expect.objectContaining({ status: 'running' }),
+				{ requireStatus: ['new', 'waiting'] },
+			);
+		});
+
+		test('Should release a claim whose execution was never added', async () => {
+			await activeExecutions.claimForResume(FAKE_SECOND_EXECUTION_ID, executionData);
+			executionRepository.updateExistingExecution.mockClear();
+
+			await activeExecutions.releaseResumeClaim(FAKE_SECOND_EXECUTION_ID);
+
+			expect(executionRepository.updateExistingExecution).toHaveBeenCalledWith(
+				FAKE_SECOND_EXECUTION_ID,
+				{ status: 'waiting' },
+				{ requireStatus: ['running'] },
+			);
+		});
+
+		test('Should not release a claim whose execution was added', async () => {
+			await activeExecutions.claimForResume(FAKE_SECOND_EXECUTION_ID, executionData);
+			await activeExecutions.add(executionData, FAKE_SECOND_EXECUTION_ID);
+			executionRepository.updateExistingExecution.mockClear();
+
+			await activeExecutions.releaseResumeClaim(FAKE_SECOND_EXECUTION_ID);
+
+			expect(executionRepository.updateExistingExecution).not.toHaveBeenCalled();
+		});
+	});
+
 	describe('attachWorkflowExecution', () => {
 		test('Should fail attaching execution to invalid executionId', async () => {
 			expect(() => {

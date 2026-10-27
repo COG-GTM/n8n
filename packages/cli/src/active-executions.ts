@@ -40,6 +40,12 @@ export class ActiveExecutions {
 		[executionId: string]: IExecutingWorkflowData;
 	} = {};
 
+	/**
+	 * Executions claimed via `claimForResume` in this process and not yet added,
+	 * mapped to the execution data the claimer will pass to `add()`.
+	 */
+	private readonly claimedForResume = new Map<string, IWorkflowExecutionDataProcess>();
+
 	constructor(
 		private readonly logger: Logger,
 		private readonly executionRepository: ExecutionRepository,
@@ -50,6 +56,39 @@ export class ActiveExecutions {
 
 	has(executionId: string) {
 		return this.activeExecutions[executionId] !== undefined;
+	}
+
+	/**
+	 * Atomically mark a `new` or `waiting` execution as `running`, so that only
+	 * one caller can resume it. Use this before responding to the caller of a
+	 * resume request; a later `add()` with the same `executionData` then skips
+	 * its own claim.
+	 *
+	 * @returns `false` if the execution was already claimed by another caller.
+	 */
+	async claimForResume(
+		executionId: string,
+		executionData: IWorkflowExecutionDataProcess,
+	): Promise<boolean> {
+		const claimed = await this.executionRepository.updateExistingExecution(
+			executionId,
+			{ status: 'running' },
+			{ requireStatus: RESUMABLE_EXECUTION_STATUSES },
+		);
+		if (claimed) this.claimedForResume.set(executionId, executionData);
+		return claimed;
+	}
+
+	/**
+	 * Undo a `claimForResume` whose execution was never added.
+	 */
+	async releaseResumeClaim(executionId: string) {
+		if (!this.claimedForResume.delete(executionId)) return;
+		await this.executionRepository.updateExistingExecution(
+			executionId,
+			{ status: 'waiting' },
+			{ requireStatus: ['running'] },
+		);
 	}
 
 	/**
@@ -98,12 +137,15 @@ export class ActiveExecutions {
 				// this is resuming, so keep `startedAt` as it was
 			};
 
-			// Atomically claim the execution so that concurrent resume attempts
-			// (e.g. duplicate webhook calls or the wait tracker) cannot resume it twice.
+			// Atomically claim the execution (unless already claimed via `claimForResume`)
+			// so that concurrent resume attempts, e.g. duplicate webhook calls or the
+			// wait tracker, cannot resume it twice.
+			const alreadyClaimed = this.claimedForResume.get(executionId) === executionData;
+			if (alreadyClaimed) this.claimedForResume.delete(executionId);
 			const claimed = await this.executionRepository.updateExistingExecution(
 				executionId,
 				execution,
-				{ requireStatus: RESUMABLE_EXECUTION_STATUSES },
+				alreadyClaimed ? {} : { requireStatus: RESUMABLE_EXECUTION_STATUSES },
 			);
 
 			if (!claimed) {
