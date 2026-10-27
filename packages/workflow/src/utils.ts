@@ -359,6 +359,10 @@ export function setSafeObjectProperty(
 	}
 }
 
+function normalizeHostname(hostname: string): string {
+	return hostname.toLowerCase().replace(/\.+$/, '');
+}
+
 export function isDomainAllowed(
 	urlString: string,
 	options: {
@@ -371,18 +375,25 @@ export function isDomainAllowed(
 
 	try {
 		const url = new URL(urlString);
-		const hostname = url.hostname;
+		const hostname = normalizeHostname(url.hostname);
+		if (!hostname) {
+			return false;
+		}
 
 		const allowedDomainsList = options.allowedDomains
 			.split(',')
-			.map((domain) => domain.trim())
+			.map((domain) => normalizeHostname(domain.trim()))
 			.filter(Boolean);
 
 		for (const allowedDomain of allowedDomainsList) {
-			// Handle wildcard domains (*.example.com)
+			// Handle wildcard domains (*.example.com): matches example.com and any subdomain,
+			// but only on a label boundary so that e.g. evilexample.com is rejected
 			if (allowedDomain.startsWith('*.')) {
-				const domainSuffix = allowedDomain.substring(2); // Remove the *. part
-				if (hostname.endsWith(domainSuffix)) {
+				const domainSuffix = allowedDomain.substring(2);
+				if (!domainSuffix || domainSuffix.startsWith('.')) {
+					continue;
+				}
+				if (hostname === domainSuffix || hostname.endsWith(`.${domainSuffix}`)) {
 					return true;
 				}
 			}

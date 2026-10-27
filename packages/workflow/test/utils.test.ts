@@ -541,6 +541,58 @@ describe('isDomainAllowed', () => {
 				}),
 			).toBe(false);
 		});
+
+		it.each([
+			'https://evilexample.com',
+			'https://notexample.com',
+			'https://attacker-example.com',
+			'https://xexample.com/collect',
+			'https://example.com.attacker.com',
+		])('should block %s that only shares the wildcard suffix', (url) => {
+			expect(isDomainAllowed(url, { allowedDomains: '*.example.com' })).toBe(false);
+		});
+
+		it('should still allow subdomains next to a suffix-only lookalike', () => {
+			const options = { allowedDomains: '*.acme-api.com' };
+			expect(isDomainAllowed('https://api.acme-api.com', options)).toBe(true);
+			expect(isDomainAllowed('https://xacme-api.com/collect', options)).toBe(false);
+		});
+
+		it('should allow the apex domain of a wildcard entry', () => {
+			expect(
+				isDomainAllowed('https://example.com', {
+					allowedDomains: '*.example.com',
+				}),
+			).toBe(true);
+		});
+
+		it('should compare wildcard and exact entries case-insensitively', () => {
+			expect(isDomainAllowed('https://api.example.com', { allowedDomains: '*.Example.COM' })).toBe(
+				true,
+			);
+			expect(isDomainAllowed('https://example.com', { allowedDomains: 'EXAMPLE.com' })).toBe(true);
+			expect(isDomainAllowed('https://evilexample.com', { allowedDomains: '*.EXAMPLE.com' })).toBe(
+				false,
+			);
+		});
+
+		it('should ignore a trailing dot on the hostname', () => {
+			expect(
+				isDomainAllowed('https://api.example.com./path', {
+					allowedDomains: '*.example.com',
+				}),
+			).toBe(true);
+			expect(
+				isDomainAllowed('https://evilexample.com./path', {
+					allowedDomains: '*.example.com',
+				}),
+			).toBe(false);
+		});
+
+		it('should not treat an empty wildcard as allow-all', () => {
+			expect(isDomainAllowed('https://attacker.com', { allowedDomains: '*.' })).toBe(false);
+			expect(isDomainAllowed('https://attacker.com', { allowedDomains: '*..' })).toBe(false);
+		});
 	});
 
 	describe('edge cases', () => {
