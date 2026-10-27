@@ -102,6 +102,8 @@ export class WorkflowsController {
 
 		newWorkflow.versionId = uuid();
 
+		WorkflowHelpers.validateWorkflowTimezoneSetting(newWorkflow.settings);
+
 		await validateEntity(newWorkflow);
 
 		await this.externalHooks.run('workflow.create', [newWorkflow]);

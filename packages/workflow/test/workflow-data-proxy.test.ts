@@ -1,4 +1,4 @@
-import { DateTime, Duration, Interval } from 'luxon';
+import { DateTime, Duration, Interval, Settings } from 'luxon';
 
 import * as Helpers from './helpers';
 import { ensureError } from '../src/errors/ensure-error';
@@ -743,6 +743,37 @@ describe('WorkflowDataProxy', () => {
 			);
 
 			expect(timezoneProxy.$now.zoneName).toBe('America/New_York');
+		});
+
+		test('should not change the process-wide Luxon default zone', () => {
+			const previousDefaultZone = Settings.defaultZone.name;
+
+			const timezoneProxy = getProxyFromFixture(
+				{ ...fixture.workflow, settings: { timezone: 'Asia/Tokyo' } },
+				fixture.run,
+				'End',
+			);
+
+			expect(Settings.defaultZone.name).toBe(previousDefaultZone);
+			expect(timezoneProxy.$now.zoneName).toBe('Asia/Tokyo');
+			expect(timezoneProxy.$today.zoneName).toBe('Asia/Tokyo');
+			expect(DateTime.now().isValid).toBe(true);
+		});
+
+		test('should fall back to the default timezone when the workflow timezone is invalid', () => {
+			const previousDefaultZone = Settings.defaultZone.name;
+
+			const invalidTimezoneProxy = getProxyFromFixture(
+				{ ...fixture.workflow, settings: { timezone: 'Not/AZone' } },
+				fixture.run,
+				'End',
+			);
+
+			expect(invalidTimezoneProxy.$now.isValid).toBe(true);
+			expect(invalidTimezoneProxy.$now.zoneName).toBe('America/New_York');
+			expect(invalidTimezoneProxy.$today.isValid).toBe(true);
+			expect(Settings.defaultZone.name).toBe(previousDefaultZone);
+			expect(DateTime.now().isValid).toBe(true);
 		});
 	});
 

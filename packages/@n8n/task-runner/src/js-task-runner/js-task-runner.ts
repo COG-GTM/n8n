@@ -1,6 +1,6 @@
 import isObject from 'lodash/isObject';
 import set from 'lodash/set';
-import { DateTime, Duration, Interval } from 'luxon';
+import { DateTime, Duration, Interval, Settings } from 'luxon';
 import { getAdditionalKeys } from 'n8n-core';
 import {
 	WorkflowDataProxy,
@@ -189,6 +189,10 @@ export class JsTaskRunner extends TaskRunner {
 		});
 
 		workflow.staticData = ObservableObject.create(workflow.staticData);
+
+		// User code can't be scoped synchronously, so the validated workflow timezone becomes the
+		// runner's default zone for `DateTime.now()` and friends inside the Code node.
+		Settings.defaultZone = workflow.timezone;
 
 		const result =
 			settings.nodeMode === 'runOnceForAllItems'

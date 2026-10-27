@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { DateTime, Duration, Interval } from 'luxon';
+import { DateTime, Duration, Interval, Settings } from 'luxon';
 
 import { workflow } from './ExpressionExtensions/helpers';
 import { baseFixtures } from './ExpressionFixtures/base';
@@ -228,5 +228,64 @@ describe('Expression', () => {
 				vi.useRealTimers();
 			});
 		}
+	});
+});
+
+describe('Expression workflow timezone isolation', () => {
+	const nodeTypes = Helpers.NodeTypes();
+	const createWorkflow = (timezone?: string) =>
+		new Workflow({
+			id: '1',
+			nodes: [
+				{
+					name: 'node',
+					typeVersion: 1,
+					type: 'test.set',
+					id: 'uuid-1234',
+					position: [0, 0],
+					parameters: {},
+				},
+			],
+			connections: {},
+			active: false,
+			nodeTypes,
+			settings: timezone === undefined ? {} : { timezone },
+		});
+
+	const evaluate = (wf: Workflow, value: string) =>
+		wf.expression.getParameterValue(value, null, 0, 0, 'node', [], 'manual', {});
+
+	it('should apply the workflow timezone to DateTime inside the expression only', () => {
+		const previousDefaultZone = Settings.defaultZone.name;
+		const tokyo = createWorkflow('Asia/Tokyo');
+
+		expect(evaluate(tokyo, '={{ DateTime.now().zoneName }}')).toBe('Asia/Tokyo');
+		expect(evaluate(tokyo, '={{ $now.zoneName }}')).toBe('Asia/Tokyo');
+		expect(Settings.defaultZone.name).toBe(previousDefaultZone);
+	});
+
+	it('should not let an invalid workflow timezone break other workflows', () => {
+		const previousDefaultZone = Settings.defaultZone.name;
+		const invalid = createWorkflow('Not/AZone');
+		const other = createWorkflow('Europe/Berlin');
+
+		expect(evaluate(invalid, '={{ $now.isValid }}')).toBe(true);
+		expect(evaluate(invalid, '={{ DateTime.now().zoneName }}')).toBe('America/New_York');
+		expect(Settings.defaultZone.name).toBe(previousDefaultZone);
+
+		expect(evaluate(other, '={{ $now.isValid }}')).toBe(true);
+		expect(evaluate(other, '={{ $now.zoneName }}')).toBe('Europe/Berlin');
+		expect(typeof evaluate(other, '={{ $now.toString() }}')).toBe('string');
+		expect(DateTime.now().isValid).toBe(true);
+	});
+
+	it('should restore the default zone when the expression throws', () => {
+		const previousDefaultZone = Settings.defaultZone.name;
+		const tokyo = createWorkflow('Asia/Tokyo');
+
+		try {
+			evaluate(tokyo, '={{ (() => { throw new Error("boom") })() }}');
+		} catch {}
+		expect(Settings.defaultZone.name).toBe(previousDefaultZone);
 	});
 });

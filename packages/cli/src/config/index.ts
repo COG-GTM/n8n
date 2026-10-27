@@ -5,7 +5,8 @@ import convict from 'convict';
 import { flatten } from 'flat';
 import { readFileSync } from 'fs';
 import merge from 'lodash/merge';
-import { setGlobalState, UserError } from 'n8n-workflow';
+import { Settings as LuxonSettings } from 'luxon';
+import { isValidTimezone, setGlobalState, UserError } from 'n8n-workflow';
 import assert from 'node:assert';
 
 import { inE2ETests } from '@/constants';
@@ -96,6 +97,10 @@ if (!inE2ETests && !inTest) {
 setGlobalState({
 	defaultTimezone: globalConfig.generic.timezone,
 });
+
+if (isValidTimezone(globalConfig.generic.timezone)) {
+	LuxonSettings.defaultZone = globalConfig.generic.timezone;
+}
 
 // eslint-disable-next-line import-x/no-default-export
 export default config;

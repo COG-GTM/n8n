@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import { Settings } from 'luxon';
 import type {
 	IExecuteFunctions,
 	INodeExecutionData,
@@ -30,6 +31,9 @@ export function getSandboxContext(
 		httpRequestWithAuthentication: this.helpers.httpRequestWithAuthentication.bind(this),
 		requestWithAuthenticationPaginated: this.helpers.requestWithAuthenticationPaginated.bind(this),
 	};
+	// Sandboxed code runs asynchronously, so expose the (validated) workflow timezone as Luxon's
+	// default zone for `DateTime.now()` and friends, as before.
+	Settings.defaultZone = this.getTimezone();
 	return {
 		// from NodeExecuteFunctions
 		$getNodeParameter: this.getNodeParameter.bind(this),

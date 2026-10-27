@@ -12,7 +12,11 @@ import { z } from 'zod';
 import { ActiveWorkflowManager } from '@/active-workflow-manager';
 import { EventService } from '@/events/event.service';
 import { ExternalHooks } from '@/external-hooks';
-import { addNodeIds, replaceInvalidCredentials } from '@/workflow-helpers';
+import {
+	addNodeIds,
+	isValidWorkflowTimezoneSetting,
+	replaceInvalidCredentials,
+} from '@/workflow-helpers';
 import { WorkflowFinderService } from '@/workflows/workflow-finder.service';
 import { WorkflowHistoryService } from '@/workflows/workflow-history.ee/workflow-history.service.ee';
 import { WorkflowService } from '@/workflows/workflow.service';
@@ -41,6 +45,10 @@ export = {
 		apiKeyHasScope('workflow:create'),
 		async (req: WorkflowRequest.Create, res: express.Response): Promise<express.Response> => {
 			const workflow = req.body;
+
+			if (!isValidWorkflowTimezoneSetting(workflow.settings)) {
+				return res.status(400).json({ message: 'Workflow settings contain an invalid timezone' });
+			}
 
 			workflow.active = false;
 			workflow.versionId = uuid();
@@ -274,6 +282,10 @@ export = {
 			Object.assign(updateData, req.body);
 			updateData.id = id;
 			updateData.versionId = uuid();
+
+			if (!isValidWorkflowTimezoneSetting(updateData.settings)) {
+				return res.status(400).json({ message: 'Workflow settings contain an invalid timezone' });
+			}
 
 			const workflow = await Container.get(WorkflowFinderService).findWorkflowForUser(
 				id,

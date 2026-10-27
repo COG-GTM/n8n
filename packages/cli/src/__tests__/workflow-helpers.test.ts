@@ -4,7 +4,12 @@ import type { Project, Variables } from '@n8n/db';
 import { VariablesService } from '@/environments.ee/variables/variables.service.ee';
 import { OwnershipService } from '@/services/ownership.service';
 import { getVariables } from '@/workflow-helpers';
-import { shouldRestartParentExecution } from '@/workflow-helpers';
+import {
+	isValidWorkflowTimezoneSetting,
+	shouldRestartParentExecution,
+	validateWorkflowTimezoneSetting,
+} from '@/workflow-helpers';
+import { BadRequestError } from '@/errors/response-errors/bad-request.error';
 
 describe('workflow-helpers', () => {
 	beforeAll(() => {
@@ -96,4 +101,25 @@ describe('shouldRestartParentExecution', () => {
 		};
 		expect(shouldRestartParentExecution(parentExecution)).toBe(true);
 	});
+});
+
+describe('validateWorkflowTimezoneSetting', () => {
+	it.each([
+		undefined,
+		{},
+		{ timezone: 'DEFAULT' },
+		{ timezone: 'America/New_York' },
+		{ timezone: 'UTC' },
+	])('should accept %j', (settings) => {
+		expect(isValidWorkflowTimezoneSetting(settings)).toBe(true);
+		expect(() => validateWorkflowTimezoneSetting(settings)).not.toThrow();
+	});
+
+	it.each([{ timezone: 'Not/AZone' }, { timezone: '' }, { timezone: 'America/NewYork' }])(
+		'should reject %j',
+		(settings) => {
+			expect(isValidWorkflowTimezoneSetting(settings)).toBe(false);
+			expect(() => validateWorkflowTimezoneSetting(settings)).toThrow(BadRequestError);
+		},
+	);
 });

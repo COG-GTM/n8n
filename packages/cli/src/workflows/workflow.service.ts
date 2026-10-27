@@ -248,6 +248,8 @@ export class WorkflowService {
 
 		WorkflowHelpers.addNodeIds(workflowUpdateData);
 
+		WorkflowHelpers.validateWorkflowTimezoneSetting(workflowUpdateData.settings);
+
 		await this.externalHooks.run('workflow.update', [workflowUpdateData]);
 
 		/**

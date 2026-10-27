@@ -42,7 +42,9 @@ export function parseDate(
 			}
 
 			if (options.fromFormat) {
-				parsedDate = DateTime.fromFormat(date as string, options.fromFormat);
+				parsedDate = DateTime.fromFormat(date as string, options.fromFormat, {
+					zone: this.getTimezone(),
+				});
 			} else {
 				parsedDate = DateTime.fromISO(moment(date).toISOString());
 			}
