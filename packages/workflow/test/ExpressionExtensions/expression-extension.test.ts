@@ -4,7 +4,7 @@
 
 import { evaluate } from './helpers';
 import { ExpressionExtensionError } from '../../src/errors/expression-extension.error';
-import { extendTransform, extend } from '../../src/extensions';
+import { extendTransform, extend, extendOptional } from '../../src/extensions';
 import { joinExpression, splitExpression } from '../../src/extensions/expression-parser';
 
 describe('Expression Extension Transforms', () => {
@@ -261,6 +261,52 @@ describe('Expression Parser', () => {
 			const result = extend('TEST', 'toUpperCase', []);
 
 			expect(result).toEqual('TEST');
+		});
+	});
+	describe('Unsafe function names', () => {
+		const securityError = (name: string) =>
+			new ExpressionExtensionError(`Cannot access "${name}" due to security concerns`);
+
+		const unsafeNames = ['constructor', '__proto__', 'prototype', 'getPrototypeOf'];
+
+		test.each(unsafeNames)('extend() rejects %s', (name) => {
+			expect(() => extend(parseInt, name, ['return 1'])).toThrowError(securityError(name));
+			expect(() => extend('x', name, [])).toThrowError(securityError(name));
+			expect(() => extend([], name, [])).toThrowError(securityError(name));
+			expect(() => extend({}, name, [])).toThrowError(securityError(name));
+			expect(() => extend(1, name, [])).toThrowError(securityError(name));
+		});
+
+		test.each(unsafeNames)('extendOptional() rejects %s', (name) => {
+			expect(() => extendOptional(Object, name)).toThrowError(securityError(name));
+			expect(() => extendOptional('x', name)).toThrowError(securityError(name));
+		});
+
+		test('rejects non-string function names', () => {
+			expect(() => extend(parseInt, ['constructor'] as unknown as string, [])).toThrowError(
+				ExpressionExtensionError,
+			);
+		});
+
+		test('never returns a function constructor via the native fallback', () => {
+			const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+			const holder = { make: Function, makeAsync: AsyncFunction };
+			expect(() => extend(holder, 'make', ['return 1'])).toThrowError(securityError('make'));
+			expect(() => extendOptional(holder, 'makeAsync')).toThrowError(securityError('makeAsync'));
+		});
+
+		test('does not resolve inherited Object.prototype members of extension maps', () => {
+			expect(() => extend('x', 'hasOwnProperty', [])).not.toThrow();
+			expect(extend('x', 'hasOwnProperty', ['length'])).toBe(true);
+			expect(() => extend(undefined, '__defineGetter__', [])).toThrowError(
+				ExpressionExtensionError,
+			);
+		});
+
+		test('still allows native and extended methods', () => {
+			expect(extend('TEST', 'toLowerCase', [])).toEqual('test');
+			expect(extend('hello world', 'toTitleCase', [])).toEqual('Hello World');
+			expect(extendOptional([1, 2], 'first')?.()).toEqual(1);
 		});
 	});
 });
