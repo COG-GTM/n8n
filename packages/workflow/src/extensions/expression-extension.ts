@@ -17,6 +17,7 @@ import { objectExtensions } from './object-extensions';
 import { stringExtensions } from './string-extensions';
 import { checkIfValueDefinedOrThrow } from './utils';
 import { ExpressionExtensionError } from '../errors/expression-extension.error';
+import { isSafeObjectProperty } from '../utils';
 
 const EXPRESSION_EXTENDER = 'extend';
 const EXPRESSION_EXTENDER_OPTIONAL = 'extendOptional';
@@ -453,27 +454,50 @@ interface FoundFunction {
 	function: Function;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-restricted-types
+const FUNCTION_CONSTRUCTORS = new Set<Function>([
+	Function,
+	Object.getPrototypeOf(async function () {}).constructor,
+	Object.getPrototypeOf(function* () {}).constructor,
+	Object.getPrototypeOf(async function* () {}).constructor,
+]);
+
+function assertSafeFunctionName(functionName: unknown): asserts functionName is string {
+	if (typeof functionName !== 'string' || !isSafeObjectProperty(functionName)) {
+		throw new ExpressionExtensionError(
+			`Cannot access "${String(functionName)}" due to security concerns`,
+		);
+	}
+}
+
+// eslint-disable-next-line @typescript-eslint/no-restricted-types
+function getOwnFunction(map: Record<string, Function>, functionName: string) {
+	return Object.prototype.hasOwnProperty.call(map, functionName) ? map[functionName] : undefined;
+}
+
 function findExtendedFunction(input: unknown, functionName: string): FoundFunction | undefined {
+	assertSafeFunctionName(functionName);
+
 	// eslint-disable-next-line @typescript-eslint/no-restricted-types
 	let foundFunction: Function | undefined;
 	if (Array.isArray(input)) {
-		foundFunction = arrayExtensions.functions[functionName];
+		foundFunction = getOwnFunction(arrayExtensions.functions, functionName);
 	} else if (isDate(input) && functionName !== 'toDate' && functionName !== 'toDateTime') {
 		// If it's a string date (from $json), convert it to a Date object,
 		// unless that function is `toDate`, since `toDate` does something
 		// very different on date objects
 		input = new Date(input as string);
-		foundFunction = dateExtensions.functions[functionName];
+		foundFunction = getOwnFunction(dateExtensions.functions, functionName);
 	} else if (typeof input === 'string') {
-		foundFunction = stringExtensions.functions[functionName];
+		foundFunction = getOwnFunction(stringExtensions.functions, functionName);
 	} else if (typeof input === 'number') {
-		foundFunction = numberExtensions.functions[functionName];
+		foundFunction = getOwnFunction(numberExtensions.functions, functionName);
 	} else if (input && (DateTime.isDateTime(input) || input instanceof Date)) {
-		foundFunction = dateExtensions.functions[functionName];
+		foundFunction = getOwnFunction(dateExtensions.functions, functionName);
 	} else if (input !== null && typeof input === 'object') {
-		foundFunction = objectExtensions.functions[functionName];
+		foundFunction = getOwnFunction(objectExtensions.functions, functionName);
 	} else if (typeof input === 'boolean') {
-		foundFunction = booleanExtensions.functions[functionName];
+		foundFunction = getOwnFunction(booleanExtensions.functions, functionName);
 	}
 
 	// Look for generic or builtin
@@ -483,12 +507,18 @@ function findExtendedFunction(input: unknown, functionName: string): FoundFuncti
 		// This is likely a builtin we're implementing for another type
 		// (e.g. toLocaleString). We'll return that instead
 		if (inputAny && functionName && typeof inputAny[functionName] === 'function') {
-			// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-			return { type: 'native', function: inputAny[functionName] };
+			// eslint-disable-next-line @typescript-eslint/no-restricted-types
+			const nativeFunction: Function = inputAny[functionName];
+			if (FUNCTION_CONSTRUCTORS.has(nativeFunction)) {
+				throw new ExpressionExtensionError(
+					`Cannot access "${functionName}" due to security concerns`,
+				);
+			}
+			return { type: 'native', function: nativeFunction };
 		}
 
 		// Use a generic version if available
-		foundFunction = genericExtensions[functionName];
+		foundFunction = getOwnFunction(genericExtensions, functionName);
 	}
 
 	if (!foundFunction) {
@@ -513,7 +543,9 @@ export function extend(input: unknown, functionName: string, args: unknown[]) {
 	// letting the user know the available types.
 	if (!foundFunction) {
 		checkIfValueDefinedOrThrow(input, functionName);
-		const haveFunction = EXTENSION_OBJECTS.filter((v) => functionName in v.functions);
+		const haveFunction = EXTENSION_OBJECTS.filter((v) =>
+			Object.prototype.hasOwnProperty.call(v.functions, functionName),
+		);
 		if (!haveFunction.length) {
 			// This shouldn't really be possible but we should cover it anyway
 			throw new ExpressionExtensionError(`Unknown expression function: ${functionName}`);

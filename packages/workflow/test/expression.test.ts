@@ -172,6 +172,28 @@ describe('Expression', () => {
 
 			expect(testFn).not.toHaveBeenCalled();
 		});
+
+		it('should not allow calling the extend helpers with unsafe method names', () => {
+			const testFn = vi.fn();
+			Object.assign(global, { testFn });
+
+			vi.useFakeTimers({ now: new Date() });
+			expect(() => evaluate("={{ extend(parseInt, 'constructor', ['testFn()'])() }}")).toThrow(
+				'Cannot access "constructor" due to security concerns',
+			);
+			expect(() => evaluate("={{ extend(parseInt, 'constructor', ['return 1']) }}")).toThrow(
+				'Cannot access "constructor" due to security concerns',
+			);
+			expect(() => evaluate("={{ extendOptional(Object, 'constructor')('testFn()')() }}")).toThrow(
+				'Cannot access "constructor" due to security concerns',
+			);
+			expect(() => evaluate("={{ extend('x', '__proto__', []) }}")).toThrow(
+				'Cannot access "__proto__" due to security concerns',
+			);
+			vi.useRealTimers();
+
+			expect(testFn).not.toHaveBeenCalled();
+		});
 	});
 
 	describe('Test all expression value fixtures', () => {
