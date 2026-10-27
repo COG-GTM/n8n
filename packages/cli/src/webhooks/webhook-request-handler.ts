@@ -1,11 +1,6 @@
 import { Logger } from '@n8n/backend-common';
 import { Container } from '@n8n/di';
 import type express from 'express';
-import {
-	isWebhookHtmlSandboxingDisabled,
-	getWebhookSandboxCSP,
-	isHtmlRenderedContentType,
-} from 'n8n-core';
 import { ensureError, type IHttpRequestMethods } from 'n8n-workflow';
 import { Readable } from 'stream';
 import { finished } from 'stream/promises';
@@ -23,6 +18,7 @@ import {
 	isWebhookResponse,
 	isWebhookStreamResponse,
 } from '@/webhooks/webhook-response';
+import { applyWebhookSandboxHeader } from '@/webhooks/webhook-sandbox';
 import { WebhookService } from '@/webhooks/webhook.service';
 import type {
 	IWebhookManager,
@@ -150,12 +146,7 @@ class WebhookRequestHandler {
 			}
 		}
 
-		const contentType = res.getHeader('content-type') as string | undefined;
-		const needsSandbox = !contentType || isHtmlRenderedContentType(contentType);
-
-		if (needsSandbox && !isWebhookHtmlSandboxingDisabled()) {
-			res.setHeader('Content-Security-Policy', getWebhookSandboxCSP());
-		}
+		applyWebhookSandboxHeader(res);
 	}
 
 	/**
