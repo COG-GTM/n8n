@@ -172,6 +172,25 @@ describe('Expression', () => {
 
 			expect(testFn).not.toHaveBeenCalled();
 		});
+
+		it('should not be able to reach the Function constructor through reflection', () => {
+			const testFn = vi.fn();
+			Object.assign(global, { testFn });
+
+			const expressions = [
+				"={{ Object.getOwnPropertyDescriptor(Object.getOwnPropertyDescriptor(Object,'getPrototypeOf').value(parseInt),'constructor').value('testFn()')() }}",
+				"={{ Object.getOwnPropertyDescriptor(Object,'getPrototypeOf') }}",
+				"={{ Object.getOwnPropertyDescriptor(Object,'prototype').value }}",
+				'={{ parseInt[`constructor`](\'testFn()\')() }}',
+				"={{ parseInt[['constructor']]('testFn()')() }}",
+				"={{ (({ constructor: c }) => c)(parseInt)('testFn()')() }}",
+			];
+			for (const value of expressions) {
+				expect(() => evaluate(value)).toThrowError(ExpressionError);
+			}
+
+			expect(testFn).not.toHaveBeenCalled();
+		});
 	});
 
 	describe('Test all expression value fixtures', () => {
