@@ -96,6 +96,7 @@ describe('isHtmlRenderedContentType', () => {
 			'text/plain, text/html',
 			'application/json,image/svg+xml',
 			'text/plain,application/xml',
+			'application/pdf; name="a, b", image/svg+xml',
 		])('should return true for "%s"', (contentType) => {
 			expect(isHtmlRenderedContentType(contentType)).toBe(true);
 		});
@@ -115,6 +116,8 @@ describe('isHtmlRenderedContentType', () => {
 			'image/svg',
 			'application/pdf',
 			'application/xml-dtd',
+			'application/pdf; name="invoice, text/html; revision"',
+			'application/pdf; name="a\\", text/html"',
 		])('should return false for %s', (contentType) => {
 			expect(isHtmlRenderedContentType(contentType)).toBe(false);
 		});

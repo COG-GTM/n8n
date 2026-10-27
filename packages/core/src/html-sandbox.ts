@@ -38,15 +38,41 @@ const isScriptableEssence = (essence: string) =>
 	essence.startsWith('application/xhtml+xml');
 
 /**
+ * Splits a header value on commas that are not inside a quoted string.
+ */
+const splitOutsideQuotes = (value: string) => {
+	const parts: string[] = [];
+	let current = '';
+	let inQuotes = false;
+
+	for (let i = 0; i < value.length; i++) {
+		const char = value[i];
+		if (inQuotes && char === '\\') {
+			current += char + (value[i + 1] ?? '');
+			i++;
+			continue;
+		}
+		if (char === '"') inQuotes = !inQuotes;
+		if (char === ',' && !inQuotes) {
+			parts.push(current);
+			current = '';
+			continue;
+		}
+		current += char;
+	}
+	parts.push(current);
+
+	return parts;
+};
+
+/**
  * Checks if the given content type is something a browser might render
  * as HTML or another document type that can execute scripts (e.g. SVG or XML).
  */
 export const isHtmlRenderedContentType = (contentType: string) => {
 	// Browsers strip whitespace, ignore parameters (e.g. "; charset=utf-8") and
 	// accept comma-separated lists of MIME types, so every candidate is checked.
-	const essences = contentType
-		.toLowerCase()
-		.split(',')
+	const essences = splitOutsideQuotes(contentType.toLowerCase())
 		.map((part) => part.split(';')[0].trim())
 		.filter((essence) => essence.length > 0);
 
