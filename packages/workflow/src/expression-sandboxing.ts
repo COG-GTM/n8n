@@ -118,53 +118,123 @@ export const DollarSignValidator: ASTAfterHook = (ast, _dataNode) => {
 	});
 };
 
+/**
+ * Property names that expose accessors or descriptors of arbitrary objects, which would
+ * otherwise let an expression reach `Function.prototype.constructor` using only string
+ * arguments, e.g. `Object.getOwnPropertyDescriptor(fnProto, 'constructor').value`.
+ */
+const unsafeSandboxProperties = new Set([
+	'getOwnPropertyDescriptor',
+	'getOwnPropertyDescriptors',
+	'__lookupGetter__',
+	'__lookupSetter__',
+	'__defineGetter__',
+	'__defineSetter__',
+]);
+
+const isSafeSandboxProperty = (property: string) =>
+	isSafeObjectProperty(property) && !unsafeSandboxProperties.has(property);
+
+const assertSafeSandboxProperty = (property: string) => {
+	if (!isSafeSandboxProperty(property)) {
+		throw new ExpressionError(`Cannot access "${property}" due to security concerns`);
+	}
+};
+
+type LiteralLike = { type: string; value?: unknown };
+
+type ExpressionNode = Parameters<typeof b.expressionStatement>[0];
+
+const isStringLiteral = (node: LiteralLike): node is { type: string; value: string } =>
+	node.type === 'StringLiteral' || (node.type === 'Literal' && typeof node.value === 'string');
+
+const isNumericLiteral = (node: LiteralLike) =>
+	node.type === 'NumericLiteral' || (node.type === 'Literal' && typeof node.value === 'number');
+
 export const PrototypeSanitizer: ASTAfterHook = (ast, dataNode) => {
+	const wrapInSanitizer = (node: ExpressionNode) =>
+		b.callExpression(b.memberExpression(dataNode, sanitizerIdentifier), [node]);
+
+	const sanitizeMemberExpression = (node: {
+		computed?: boolean | null;
+		property: ExpressionNode;
+	}) => {
+		if (!node.computed) {
+			// This is static, so we're safe to error here
+			if (node.property.type !== 'Identifier' || typeof node.property.name !== 'string') {
+				throw new ExpressionError(
+					`Unknown property type ${node.property.type} while sanitising expression`,
+				);
+			}
+
+			assertSafeSandboxProperty(node.property.name);
+		} else if (isStringLiteral(node.property)) {
+			// Check any static strings against our forbidden list
+			assertSafeSandboxProperty(node.property.value);
+		} else if (!isNumericLiteral(node.property)) {
+			// Anything else (identifiers, calls, template literals, arrays, ...) is only
+			// known at runtime, so we need to wrap it
+			node.property = wrapInSanitizer(node.property);
+		}
+	};
+
 	astVisit(ast, {
 		visitMemberExpression(path) {
 			this.traverse(path);
-			const node = path.node;
-			if (!node.computed) {
-				// This is static, so we're safe to error here
-				if (node.property.type !== 'Identifier') {
-					throw new ExpressionError(
-						`Unknown property type ${node.property.type} while sanitising expression`,
-					);
-				}
+			sanitizeMemberExpression(path.node);
+		},
+		visitOptionalMemberExpression(path) {
+			this.traverse(path);
+			sanitizeMemberExpression(path.node);
+		},
+		visitObjectPattern(path) {
+			this.traverse(path);
+			// Destructuring (`const { constructor: c } = fn`) reads properties without a
+			// MemberExpression, so its keys need the same checks
+			for (const property of path.node.properties) {
+				if (property.type !== 'Property' && property.type !== 'ObjectProperty') continue;
 
-				if (!isSafeObjectProperty(node.property.name)) {
-					throw new ExpressionError(
-						`Cannot access "${node.property.name}" due to security concerns`,
-					);
+				const key: LiteralLike & { name?: unknown } = property.key;
+				if (!property.computed) {
+					if (key.type === 'Identifier' && typeof key.name === 'string') {
+						assertSafeSandboxProperty(key.name);
+					} else if (isStringLiteral(key)) {
+						assertSafeSandboxProperty(key.value);
+					} else if (!isNumericLiteral(key)) {
+						throw new ExpressionError(
+							`Unknown property type ${key.type} while sanitising expression`,
+						);
+					}
+				} else if (isStringLiteral(key)) {
+					assertSafeSandboxProperty(key.value);
+				} else if (!isNumericLiteral(key)) {
+					property.key = wrapInSanitizer(property.key);
 				}
-			} else if (node.property.type === 'StringLiteral' || node.property.type === 'Literal') {
-				// Check any static strings against our forbidden list
-				if (!isSafeObjectProperty(node.property.value as string)) {
-					throw new ExpressionError(
-						`Cannot access "${node.property.value as string}" due to security concerns`,
-					);
-				}
-			} else if (!node.property.type.endsWith('Literal')) {
-				// This isn't a literal value, so we need to wrap it
-				path.replace(
-					b.memberExpression(
-						// eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any
-						node.object as any,
-						// eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-						b.callExpression(b.memberExpression(dataNode, sanitizerIdentifier), [
-							// eslint-disable-next-line @typescript-eslint/no-explicit-any
-							node.property as any,
-						]),
-						true,
-					),
-				);
 			}
 		},
 	});
 };
 
-export const sanitizer = (value: unknown): unknown => {
-	if (!isSafeObjectProperty(value as string)) {
-		throw new ExpressionError(`Cannot access "${value as string}" due to security concerns`);
+/**
+ * Coerces a value to a property key exactly like a property access would (ToPropertyKey),
+ * including objects whose `toString` / `Symbol.toPrimitive` return a symbol.
+ */
+const propertyKeyResolver = new Proxy<Record<PropertyKey, string | symbol>>(
+	{},
+	{ get: (_target, key) => key },
+);
+
+/**
+ * Runtime check for computed property keys. The key is coerced exactly once, the same way
+ * a property access would coerce it, and the coerced key is returned. This prevents
+ * non-string keys (e.g. `['constructor']` or objects with a custom `toString`) from passing
+ * the check and being turned into a forbidden name afterwards.
+ */
+export const sanitizer = (value: unknown): string | symbol => {
+	// Any value is a valid computed key at runtime; the proxy performs the coercion
+	const key = propertyKeyResolver[value as PropertyKey];
+	if (typeof key === 'string') {
+		assertSafeSandboxProperty(key);
 	}
-	return value;
+	return key;
 };

@@ -224,5 +224,94 @@ describe('PrototypeSanitizer', () => {
 				});
 			}).toThrowError(errorRegex);
 		});
+
+		describe('non-string and template literal keys', () => {
+			const data = { __sanitize: sanitizer, Math };
+
+			it.each([
+				'{{ Math.max[`constructor`] }}',
+				'{{ Math.max[`constr${"uctor"}`] }}',
+				"{{ Math.max[['constructor']] }}",
+				"{{ Math.max[[['constructor']]] }}",
+				"{{ Math.max[{ toString() { return 'constructor' } }] }}",
+				"{{ Math.max[{ [Symbol.toPrimitive]() { return 'constructor' } }] }}",
+				'{{ ({})[`__proto__`] }}',
+				"{{ ({})[['__proto__']] }}",
+				'{{ Math.max[`constructor`]("return 1")() }}',
+				"{{ Math.max?.[['constructor']] }}",
+			])('should block %s', (expression) => {
+				expect(() => tournament.execute(expression, data)).toThrowError(errorRegex);
+			});
+
+			it('should coerce the key only once', () => {
+				const expression = `{{ (() => {
+					let calls = 0;
+					const key = { toString: () => (calls++ === 0 ? 'a' : 'constructor') };
+					return ({ a: 1 })[key];
+				})() }}`;
+				expect(tournament.execute(expression, data)).toBe(1);
+			});
+
+			it('should still allow safe computed keys', () => {
+				expect(tournament.execute('{{ ({ a: 1 })[`a`] }}', data)).toBe(1);
+				expect(tournament.execute("{{ ({ a: 1 })[['a']] }}", data)).toBe(1);
+				expect(tournament.execute('{{ [1, 2, 3][1] }}', data)).toBe(2);
+				expect(tournament.execute('{{ [1, 2, 3][1 + 1] }}', data)).toBe(3);
+				expect(
+					tournament.execute('{{ (() => { const s = Symbol("s"); return { [s]: 4 }[s] })() }}', data),
+				).toBe(4);
+				expect(
+					tournament.execute(
+						'{{ (() => { const s = Symbol("s"); return { [s]: 5 }[{ [Symbol.toPrimitive]: () => s }] })() }}',
+						data,
+					),
+				).toBe(5);
+			});
+		});
+
+		describe('descriptor and accessor helpers', () => {
+			const data = { __sanitize: sanitizer, Math, Object };
+
+			it.each([
+				"{{ Object.getOwnPropertyDescriptor(Object.getOwnPropertyDescriptor(Object, 'prototype').value, '__proto__').get.call(Math.max) }}",
+				'{{ Object.getOwnPropertyDescriptors(Math.max) }}',
+				"{{ Object['getOwnPropertyDescriptor'] }}",
+				"{{ Object['getOwnProperty' + 'Descriptor'] }}",
+				"{{ ({}).__lookupGetter__('__proto__') }}",
+				"{{ ({})['__lookup' + 'Getter__']('__proto__') }}",
+				"{{ ({}).__lookupSetter__('__proto__') }}",
+			])('should block %s', (expression) => {
+				expect(() => tournament.execute(expression, data)).toThrowError(errorRegex);
+			});
+		});
+
+		describe('destructuring', () => {
+			const data = { __sanitize: sanitizer, Math, Object };
+
+			it.each([
+				'{{ (() => { const { constructor: c } = Math.max; return c })() }}',
+				'{{ (() => { const { constructor } = Math.max; return constructor })() }}',
+				"{{ (() => { const { 'constructor': c } = Math.max; return c })() }}",
+				"{{ (() => { const { ['constructor']: c } = Math.max; return c })() }}",
+				'{{ (() => { const { [`constructor`]: c } = Math.max; return c })() }}',
+				"{{ (() => { const { [['constructor']]: c } = Math.max; return c })() }}",
+				'{{ (() => { const { __proto__: p } = Math.max; return p })() }}',
+				"{{ (() => { let c; ({ constructor: c } = Math.max); return c })() }}",
+				'{{ (({ constructor: c }) => c)(Math.max) }}',
+				'{{ (() => { const { getOwnPropertyDescriptor: g } = Object; return g })() }}',
+			])('should block %s', (expression) => {
+				expect(() => tournament.execute(expression, data)).toThrowError(errorRegex);
+			});
+
+			it('should still allow safe destructuring', () => {
+				const restExpression =
+					'{{ (() => { const { a, b: c, ...rest } = { a: 1, b: 2, d: 3 }; return a + c + rest.d })() }}';
+				const computedExpression =
+					"{{ (() => { const k = 'a'; const { [k]: v } = { a: 5 }; return v })() }}";
+
+				expect(tournament.execute(restExpression, data)).toBe(6);
+				expect(tournament.execute(computedExpression, data)).toBe(5);
+			});
+		});
 	});
 });
