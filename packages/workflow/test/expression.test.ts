@@ -172,6 +172,27 @@ describe('Expression', () => {
 
 			expect(testFn).not.toHaveBeenCalled();
 		});
+
+		it('should not allow escaping the sandbox via computed constructor access', () => {
+			const testFn = vi.fn();
+			Object.assign(global, { testFn });
+
+			expect(() => evaluate("={{ Math.max[`constructor`]('return 1')() }}")).toThrowError(
+				new ExpressionError('Cannot access "constructor" due to security concerns'),
+			);
+			expect(() => evaluate("={{ Math.max[['constructor']]('testFn()')() }}")).toThrowError(
+				new ExpressionError('Cannot access "constructor" due to security concerns'),
+			);
+			expect(() =>
+				evaluate(
+					"={{ Object.getOwnPropertyDescriptor(Object.getOwnPropertyDescriptor(Object.getOwnPropertyDescriptor(Object, 'prototype').value, '__proto__').get.call(Math.max), 'constructor').value('testFn()')() }}",
+				),
+			).toThrowError(
+				new ExpressionError('Cannot access "getOwnPropertyDescriptor" due to security concerns'),
+			);
+
+			expect(testFn).not.toHaveBeenCalled();
+		});
 	});
 
 	describe('Test all expression value fixtures', () => {
