@@ -2,6 +2,16 @@
 
 This list shows all the versions which include breaking changes and how to upgrade.
 
+# 1.121.0
+
+### What changed?
+
+Access to environment variables from expressions (`$env`, `process.env`) and the Code node is now blocked by default. `N8N_BLOCK_ENV_ACCESS_IN_NODE` defaults to `true`; only an explicit `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` re-enables access. Even then, n8n's own secrets (e.g. `N8N_ENCRYPTION_KEY`, `DB_*_PASSWORD`, `QUEUE_BULL_REDIS_PASSWORD`, `N8N_RUNNERS_AUTH_TOKEN`, `N8N_USER_MANAGEMENT_JWT_SECRET`, `N8N_SMTP_PASS`, license/SSL keys, `CREDENTIALS_OVERWRITE_*` and their `_FILE` variants) are never exposed to workflows or task runners.
+
+### When is action necessary?
+
+If your workflows read environment variables via `$env` or `process.env`, set `N8N_BLOCK_ENV_ACCESS_IN_NODE=false`. Workflows that read n8n's internal secrets must be changed to use credentials instead.
+
 # 1.113.0
 
 ### What changed?
