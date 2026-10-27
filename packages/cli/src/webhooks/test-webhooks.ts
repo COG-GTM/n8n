@@ -445,26 +445,15 @@ export class TestWebhooks implements IWebhookManager {
 	 * Deactivate all registered test webhooks of a workflow.
 	 */
 	async deactivateWebhooks(workflow: Workflow) {
-		const allRegistrations = await this.registrations.getAllRegistrations();
+		const registrationsHash = await this.registrations.getRegistrationsHash();
 
-		if (!allRegistrations.length) return; // nothing to deactivate
+		if (!registrationsHash) return; // nothing to deactivate
 
-		type WebhooksByWorkflow = { [workflowId: string]: IWebhookData[] };
+		const workflowRegistrations = Object.entries(registrationsHash).filter(
+			([, registration]) => registration.webhook.workflowId === workflow.id,
+		);
 
-		const webhooksByWorkflow = allRegistrations.reduce<WebhooksByWorkflow>((acc, cur) => {
-			const { workflowId } = cur.webhook;
-
-			acc[workflowId] ||= [];
-			acc[workflowId].push(cur.webhook);
-
-			return acc;
-		}, {});
-
-		const webhooks = webhooksByWorkflow[workflow.id];
-
-		if (!webhooks) return; // nothing to deactivate
-
-		for (const webhook of webhooks) {
+		for (const [key, { webhook }] of workflowRegistrations) {
 			const { userId, staticData } = webhook;
 
 			if (userId) {
@@ -477,9 +466,9 @@ export class TestWebhooks implements IWebhookManager {
 			if (staticData) workflow.staticData = staticData;
 
 			await this.webhookService.deleteWebhook(workflow, webhook, 'internal', 'update');
-		}
 
-		await this.registrations.deregisterAll();
+			await this.registrations.deregister(key);
+		}
 	}
 
 	/**
