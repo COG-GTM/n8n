@@ -114,7 +114,7 @@ const URL_REGEXP =
 	/(?:(?:https?|ftp):\/\/)(?:www\.)?((?:(?:[-\w]+\.)+(?:[a-zA-Z]{2,}|xn--[a-zA-Z0-9]+)|localhost|\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}))(?::\d+)?(?:\/[^\s?#]*)?(?:\?[^\s#]*)?(?=([^\s]+#.*)?)#?[^\s]*/i;
 
 const CHAR_TEST_REGEXP = /\p{L}/u;
-const PUNC_TEST_REGEXP = /[!?.]/;
+const SENTENCE_TOKEN_REGEXP = /\p{L}|[!?.]/gu;
 
 function hash(value: string, extraArgs: string[]): string {
 	const algorithm = extraArgs[0]?.toLowerCase() ?? 'md5';
@@ -336,26 +336,35 @@ function replaceSpecialChars(value: string) {
 }
 
 function toSentenceCase(value: string) {
-	let current = value.slice();
-	let buffer = '';
+	const firstLetter = CHAR_TEST_REGEXP.exec(value);
+	if (!firstLetter) return '';
 
-	while (CHAR_TEST_REGEXP.test(current)) {
-		const charIndex = current.search(CHAR_TEST_REGEXP);
-		current =
-			current.slice(0, charIndex) +
-			current[charIndex].toLocaleUpperCase() +
-			current.slice(charIndex + 1).toLocaleLowerCase();
-		const puncIndex = current.search(PUNC_TEST_REGEXP);
-		if (puncIndex === -1) {
-			buffer += current;
-			current = '';
-			break;
+	const firstLetterEnd = firstLetter.index + firstLetter[0].length;
+	const rest = value.slice(firstLetterEnd).toLocaleLowerCase();
+	let result = value.slice(0, firstLetter.index) + firstLetter[0].toLocaleUpperCase();
+	let segmentStart = 0;
+	let capitalizeNext = false;
+	// Text after the last letter is kept only up to the first punctuation mark.
+	let end = -1;
+
+	for (const match of rest.matchAll(SENTENCE_TOKEN_REGEXP)) {
+		const token = match[0];
+
+		if (!CHAR_TEST_REGEXP.test(token)) {
+			capitalizeNext = true;
+			if (end === -1) end = match.index + 1;
+			continue;
 		}
-		buffer += current.slice(0, puncIndex + 1);
-		current = current.slice(puncIndex + 1);
+
+		end = -1;
+		if (capitalizeNext) {
+			result += rest.slice(segmentStart, match.index) + token.toLocaleUpperCase();
+			segmentStart = match.index + token.length;
+			capitalizeNext = false;
+		}
 	}
 
-	return buffer;
+	return result + rest.slice(segmentStart, end === -1 ? undefined : end);
 }
 
 function toSnakeCase(value: string) {
