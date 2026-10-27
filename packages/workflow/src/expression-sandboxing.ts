@@ -118,53 +118,164 @@ export const DollarSignValidator: ASTAfterHook = (ast, _dataNode) => {
 	});
 };
 
+const unsafeExpressionProperties = new Set([
+	'getOwnPropertyDescriptor',
+	'getOwnPropertyDescriptors',
+	'__defineGetter__',
+	'__defineSetter__',
+	'__lookupGetter__',
+	'__lookupSetter__',
+]);
+
+const isSafeExpressionProperty = (property: string) =>
+	isSafeObjectProperty(property) && !unsafeExpressionProperties.has(property);
+
+const assertSafeProperty = (property: string) => {
+	if (!isSafeExpressionProperty(property)) {
+		throw new ExpressionError(`Cannot access "${property}" due to security concerns`);
+	}
+};
+
+/**
+ * Returns the property name of a literal node whose value is known at compile time,
+ * or `undefined` if the node has to be checked at runtime (e.g. template literals).
+ */
+const getStaticLiteralKey = (node: unknown): string | undefined => {
+	if (
+		typeof node !== 'object' ||
+		node === null ||
+		!('type' in node) ||
+		typeof node.type !== 'string' ||
+		!node.type.endsWith('Literal') ||
+		node.type === 'TemplateLiteral' ||
+		!('value' in node)
+	) {
+		return undefined;
+	}
+	return String(node.value);
+};
+
+const wrapInSanitizer = (dataNode: Parameters<ASTAfterHook>[1], property: unknown) =>
+	b.callExpression(b.memberExpression(dataNode, sanitizerIdentifier), [
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-argument
+		property as any,
+	]);
+
+const isIdentifier = (node: unknown): node is { type: 'Identifier'; name: string } =>
+	typeof node === 'object' &&
+	node !== null &&
+	'type' in node &&
+	node.type === 'Identifier' &&
+	'name' in node &&
+	typeof node.name === 'string';
+
+/**
+ * Statically validates a member expression. Returns `true` when the property
+ * can only be validated at runtime and must be wrapped in the sanitizer.
+ */
+const requiresRuntimeCheck = (node: { computed?: boolean | null; property: unknown }) => {
+	if (!node.computed) {
+		// This is static, so we're safe to error here
+		if (!isIdentifier(node.property)) {
+			const type =
+				typeof node.property === 'object' && node.property !== null && 'type' in node.property
+					? String(node.property.type)
+					: typeof node.property;
+			throw new ExpressionError(`Unknown property type ${type} while sanitising expression`);
+		}
+
+		assertSafeProperty(node.property.name);
+		return false;
+	}
+
+	const staticKey = getStaticLiteralKey(node.property);
+	if (staticKey !== undefined) {
+		assertSafeProperty(staticKey);
+		return false;
+	}
+
+	// Anything else (identifiers, template literals, calls, ...) is checked at runtime
+	return true;
+};
+
+/**
+ * Statically validates an object property key (in literals and destructuring patterns).
+ * Returns `true` when the key can only be validated at runtime.
+ */
+const requiresRuntimeKeyCheck = (node: { computed?: boolean | null; key: unknown }) => {
+	if (!node.computed && isIdentifier(node.key)) {
+		assertSafeProperty(node.key.name);
+		return false;
+	}
+
+	// Non-computed keys may also be string/numeric literals (`{ 'a': 1 }`, `{ 1: x }`)
+	const staticKey = getStaticLiteralKey(node.key);
+	if (staticKey !== undefined) {
+		assertSafeProperty(staticKey);
+		return false;
+	}
+
+	if (!node.computed) {
+		const type =
+			typeof node.key === 'object' && node.key !== null && 'type' in node.key
+				? String(node.key.type)
+				: typeof node.key;
+		throw new ExpressionError(`Unknown property type ${type} while sanitising expression`);
+	}
+
+	return true;
+};
+
 export const PrototypeSanitizer: ASTAfterHook = (ast, dataNode) => {
 	astVisit(ast, {
 		visitMemberExpression(path) {
 			this.traverse(path);
-			const node = path.node;
-			if (!node.computed) {
-				// This is static, so we're safe to error here
-				if (node.property.type !== 'Identifier') {
-					throw new ExpressionError(
-						`Unknown property type ${node.property.type} while sanitising expression`,
-					);
-				}
-
-				if (!isSafeObjectProperty(node.property.name)) {
-					throw new ExpressionError(
-						`Cannot access "${node.property.name}" due to security concerns`,
-					);
-				}
-			} else if (node.property.type === 'StringLiteral' || node.property.type === 'Literal') {
-				// Check any static strings against our forbidden list
-				if (!isSafeObjectProperty(node.property.value as string)) {
-					throw new ExpressionError(
-						`Cannot access "${node.property.value as string}" due to security concerns`,
-					);
-				}
-			} else if (!node.property.type.endsWith('Literal')) {
-				// This isn't a literal value, so we need to wrap it
-				path.replace(
-					b.memberExpression(
-						// eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any
-						node.object as any,
-						// eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-						b.callExpression(b.memberExpression(dataNode, sanitizerIdentifier), [
-							// eslint-disable-next-line @typescript-eslint/no-explicit-any
-							node.property as any,
-						]),
-						true,
-					),
-				);
+			if (requiresRuntimeCheck(path.node)) {
+				path.get('property').replace(wrapInSanitizer(dataNode, path.node.property));
+			}
+		},
+		visitOptionalMemberExpression(path) {
+			this.traverse(path);
+			if (requiresRuntimeCheck(path.node)) {
+				path.get('property').replace(wrapInSanitizer(dataNode, path.node.property));
+			}
+		},
+		// Object keys are checked regardless of whether the object is a literal or a
+		// destructuring target, since some parsers represent assignment destructuring
+		// (`({ constructor: c } = fn)`) as an ObjectExpression.
+		visitProperty(path) {
+			this.traverse(path);
+			if (requiresRuntimeKeyCheck(path.node)) {
+				path.get('key').replace(wrapInSanitizer(dataNode, path.node.key));
+			}
+		},
+		visitObjectProperty(path) {
+			this.traverse(path);
+			if (requiresRuntimeKeyCheck(path.node)) {
+				path.get('key').replace(wrapInSanitizer(dataNode, path.node.key));
 			}
 		},
 	});
 };
 
+/**
+ * Runtime check for computed property keys. The key is converted to a property key
+ * (string or symbol) *before* the check and the converted key is returned, so values
+ * like `['constructor']` or objects with a custom `toString` cannot bypass the check.
+ */
 export const sanitizer = (value: unknown): unknown => {
-	if (!isSafeObjectProperty(value as string)) {
-		throw new ExpressionError(`Cannot access "${value as string}" due to security concerns`);
+	if (typeof value === 'symbol' || typeof value === 'number') {
+		return value;
 	}
-	return value;
+
+	// A computed key in an object literal applies JavaScript's own ToPropertyKey
+	// conversion exactly once (incl. boxed symbols and Symbol.toPrimitive).
+	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+	const [key] = Reflect.ownKeys({ [value as PropertyKey]: null });
+	if (typeof key === 'symbol') {
+		return key;
+	}
+
+	assertSafeProperty(key);
+	return key;
 };

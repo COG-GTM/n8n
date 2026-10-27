@@ -216,6 +216,74 @@ describe('PrototypeSanitizer', () => {
 			}).toThrowError(errorRegex);
 		});
 
+		it.each([
+			['template literal', '{{ Math.max[`constructor`] }}'],
+			['template literal with expression', '{{ Math.max[`cons${"tructor"}`] }}'],
+			['template literal __proto__', '{{ ({})[`__proto__`] }}'],
+			['array key', "{{ Math.max[['constructor']] }}"],
+			['nested array key', "{{ Math.max[[['constructor']]] }}"],
+			['object with toString', "{{ Math.max[{ toString() { return 'constructor' } }] }}"],
+			['optional chaining', '{{ Math.max?.[`constructor`] }}'],
+			['destructuring', '{{ (({ constructor }) => constructor)(Math.max) }}'],
+			['destructuring with string key', "{{ (({ 'constructor': c }) => c)(Math.max) }}"],
+			['destructuring with computed key', '{{ (({ [`constructor`]: c }) => c)(Math.max) }}'],
+			[
+				'assignment destructuring',
+				'{{ (() => { let c; ({ constructor: c } = Math.max); return c })() }}',
+			],
+			[
+				'assignment destructuring with template key',
+				'{{ (() => { let c; ({ [`constructor`]: c } = Math.max); return c })() }}',
+			],
+			[
+				'getOwnPropertyDescriptor',
+				"{{ Object.getOwnPropertyDescriptor(Math.max, 'name') }}",
+			],
+			['__lookupGetter__', "{{ ({}).__lookupGetter__('__proto__') }}"],
+		])('should not allow access via %s', (_, expression) => {
+			expect(() => {
+				tournament.execute(expression, { __sanitize: sanitizer, Math, Object });
+			}).toThrowError(errorRegex);
+		});
+
+		it('should not execute code through the Function constructor', () => {
+			const testFn = vi.fn();
+			Object.assign(global, { testFn });
+
+			for (const expression of [
+				"{{ Math.max[`constructor`]('testFn()')() }}",
+				"{{ Math.max[['constructor']]('testFn()')() }}",
+				"{{ Math.max[{ toString() { return 'constructor' } }]('testFn()')() }}",
+			]) {
+				expect(() => {
+					tournament.execute(expression, { __sanitize: sanitizer, Math });
+				}).toThrowError(errorRegex);
+			}
+
+			expect(testFn).not.toHaveBeenCalled();
+		});
+
+		it('should still allow safe computed property access', () => {
+			const data = { __sanitize: sanitizer, obj: { a: 1, b: [10, 20] }, key: 'a' };
+			expect(tournament.execute('{{ obj[key] }}', data)).toBe(1);
+			expect(tournament.execute('{{ obj[`a`] }}', data)).toBe(1);
+			expect(tournament.execute('{{ obj.b[1] }}', data)).toBe(20);
+			expect(tournament.execute('{{ obj.b[0 + 1] }}', data)).toBe(20);
+			expect(tournament.execute("{{ obj[['a']] }}", data)).toBe(1);
+			expect(tournament.execute('{{ (({ a }) => a)(obj) }}', data)).toBe(1);
+			expect(tournament.execute('{{ ({ [key]: 2 }).a }}', data)).toBe(2);
+			expect(tournament.execute("{{ ({ 'a': 3 }).a }}", data)).toBe(3);
+			expect(tournament.execute('{{ ({ 1: 4 })[1] }}', data)).toBe(4);
+			expect(tournament.execute("{{ (({ 'a': v }) => v)(obj) }}", data)).toBe(1);
+			expect(
+				tournament.execute('{{ obj.b[Object(Symbol.iterator)]().next().value }}', {
+					...data,
+					Object,
+					Symbol,
+				}),
+			).toBe(10);
+		});
+
 		it('should not allow access to constructor', () => {
 			expect(() => {
 				tournament.execute('{{ Number["cons" + (() => "truc")() + "tor"] }}', {
