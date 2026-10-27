@@ -2,7 +2,7 @@ import { Logger } from '@n8n/backend-common';
 import { mockInstance } from '@n8n/backend-test-utils';
 import type express from 'express';
 import { mock, type MockProxy } from 'jest-mock-extended';
-import { BinaryDataService, ErrorReporter } from 'n8n-core';
+import { BinaryDataService, ErrorReporter, getWebhookSandboxCSP } from 'n8n-core';
 import type {
 	Workflow,
 	INode,
@@ -13,6 +13,7 @@ import type {
 	IWorkflowBase,
 	IRunExecutionData,
 	IExecuteData,
+	IWorkflowExecutionDataProcess,
 } from 'n8n-workflow';
 import {
 	createDeferredPromise,
@@ -31,6 +32,7 @@ import {
 	setupResponseNodePromise,
 	prepareExecutionData,
 	handleHostedChatResponse,
+	setupStreamingResponse,
 	_privateGetWebhookErrorMessage,
 } from '../webhook-helpers';
 import type { IWebhookResponseCallbackData } from '../webhook.types';
@@ -160,7 +162,7 @@ describe('handleFormRedirectionCase', () => {
 describe('setupResponseNodePromise', () => {
 	const workflowId = 'test-workflow-id';
 	const executionId = 'test-execution-id';
-	const res = mock<express.Response>();
+	const res = mock<express.Response>({ headersSent: false });
 	const responseCallback = jest.fn();
 	const workflowStartNode = mock<INode>();
 	const workflow = mock<Workflow>({ id: workflowId });
@@ -254,6 +256,98 @@ describe('setupResponseNodePromise', () => {
 		expect(responseCallback).toHaveBeenCalledWith(null, { noWebhookResponse: true });
 	});
 
+	test.each([
+		['text/html', true],
+		['application/xhtml+xml', true],
+		['image/jpeg', false],
+	])(
+		'should handle sandboxing for binary data with ID and content type %s',
+		async (contentType, sandboxed) => {
+			const mockStream = mock<Readable>();
+			binaryDataService.getAsStream.mockResolvedValue(mockStream);
+			res.getHeader.mockImplementation((name) =>
+				name === 'content-type' ? contentType : undefined,
+			);
+
+			setupResponseNodePromise(
+				responsePromise,
+				res,
+				responseCallback,
+				workflowStartNode,
+				executionId,
+				workflow,
+			);
+
+			responsePromise.resolve({
+				body: { binaryData: { id: 'binary-123' } },
+				headers: { 'content-type': contentType },
+				statusCode: 200,
+			});
+			await new Promise(process.nextTick);
+
+			if (sandboxed) {
+				expect(res.setHeader).toHaveBeenCalledWith(
+					'Content-Security-Policy',
+					getWebhookSandboxCSP(),
+				);
+				expect(res.setHeader.mock.invocationCallOrder[0]).toBeLessThan(
+					mockStream.pipe.mock.invocationCallOrder[0],
+				);
+			} else {
+				expect(res.setHeader).not.toHaveBeenCalledWith(
+					'Content-Security-Policy',
+					expect.anything(),
+				);
+			}
+			expect(mockStream.pipe).toHaveBeenCalledWith(res, { end: false });
+		},
+	);
+
+	test.each([
+		['text/html; charset=utf-8', true],
+		['text/plain', false],
+	])(
+		'should handle sandboxing for buffer response with content type %s',
+		async (contentType, sandboxed) => {
+			res.getHeader.mockImplementation((name) =>
+				name === 'content-type' ? contentType : undefined,
+			);
+
+			setupResponseNodePromise(
+				responsePromise,
+				res,
+				responseCallback,
+				workflowStartNode,
+				executionId,
+				workflow,
+			);
+
+			const buffer = Buffer.from('<script>alert(1)</script>');
+			responsePromise.resolve({
+				body: buffer,
+				headers: { 'content-type': contentType },
+				statusCode: 200,
+			});
+			await new Promise(process.nextTick);
+
+			if (sandboxed) {
+				expect(res.setHeader).toHaveBeenCalledWith(
+					'Content-Security-Policy',
+					getWebhookSandboxCSP(),
+				);
+				expect(res.setHeader.mock.invocationCallOrder[0]).toBeLessThan(
+					res.end.mock.invocationCallOrder[0],
+				);
+			} else {
+				expect(res.setHeader).not.toHaveBeenCalledWith(
+					'Content-Security-Policy',
+					expect.anything(),
+				);
+			}
+			expect(res.end).toHaveBeenCalledWith(buffer);
+		},
+	);
+
 	test('should handle errors properly', async () => {
 		setupResponseNodePromise(
 			responsePromise,
@@ -277,9 +371,34 @@ describe('setupResponseNodePromise', () => {
 	});
 });
 
+describe('setupStreamingResponse', () => {
+	test.each([
+		['missing', undefined, true],
+		['text/html', 'text/html', true],
+		['application/json', 'application/json', false],
+	])('should handle sandboxing when content type is %s', (_, contentType, sandboxed) => {
+		const res = mock<express.Response>({ headersSent: false });
+		res.getHeader.mockImplementation((name) => (name === 'content-type' ? contentType : undefined));
+		const runData = mock<IWorkflowExecutionDataProcess>();
+
+		setupStreamingResponse(res, runData);
+
+		if (sandboxed) {
+			expect(res.setHeader).toHaveBeenCalledWith('Content-Security-Policy', getWebhookSandboxCSP());
+		} else {
+			expect(res.setHeader).not.toHaveBeenCalled();
+		}
+		expect(runData.httpResponse).toBe(res);
+		expect(runData.streamingEnabled).toBe(true);
+	});
+});
+
 describe('handleHostedChatResponse', () => {
 	it('should send executionStarted: true and executionId when responseMode is hostedChat and didSendResponse is false', async () => {
 		const res = {
+			headersSent: false,
+			getHeader: jest.fn(),
+			setHeader: jest.fn(),
 			send: jest.fn(),
 			end: jest.fn(),
 		} as unknown as express.Response;
