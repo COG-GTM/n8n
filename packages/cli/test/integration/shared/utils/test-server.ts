@@ -321,6 +321,10 @@ export const setupTestServer = ({
 					case 'third-party-licenses':
 						await import('@/controllers/third-party-licenses.controller');
 						break;
+
+					case 'test-webhooks':
+						await import('@/webhooks/test-webhooks.controller');
+						break;
 				}
 			}
 

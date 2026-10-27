@@ -186,7 +186,7 @@ describe('TestWebhooks', () => {
 
 	describe('deactivateWebhooks()', () => {
 		test('should add additional data to workflow', async () => {
-			registrations.getAllRegistrations.mockResolvedValue([{ workflowEntity, webhook }]);
+			registrations.getRegistrationsHash.mockResolvedValue({ key: { workflowEntity, webhook } });
 
 			const workflow = testWebhooks.toWorkflow(workflowEntity);
 
@@ -196,6 +196,80 @@ describe('TestWebhooks', () => {
 				userId,
 				workflowId: workflowEntity.id,
 			});
+		});
+
+		test('should only deregister webhooks of the given workflow', async () => {
+			const otherWorkflowEntity = mock<IWorkflowBase>({ id: generateNanoId(), nodes: [] });
+			const otherWebhook = mock<IWebhookData>({
+				httpMethod,
+				path: uuid(),
+				workflowId: otherWorkflowEntity.id,
+			});
+
+			registrations.getRegistrationsHash.mockResolvedValue({
+				'own-key': { workflowEntity, webhook },
+				'other-key': { workflowEntity: otherWorkflowEntity, webhook: otherWebhook },
+			});
+
+			const workflow = testWebhooks.toWorkflow(workflowEntity);
+
+			await testWebhooks.deactivateWebhooks(workflow);
+
+			expect(webhookService.deleteWebhook).toHaveBeenCalledTimes(1);
+			expect(webhookService.deleteWebhook).toHaveBeenCalledWith(
+				workflow,
+				webhook,
+				'internal',
+				'update',
+			);
+			expect(registrations.deregister).toHaveBeenCalledTimes(1);
+			expect(registrations.deregister).toHaveBeenCalledWith('own-key');
+			expect(registrations.deregisterAll).not.toHaveBeenCalled();
+		});
+	});
+
+	describe('cancelWebhook()', () => {
+		test('should leave registrations of other workflows in place', async () => {
+			const otherWorkflowEntity = mock<IWorkflowBase>({ id: generateNanoId(), nodes: [] });
+			const otherWebhook = mock<IWebhookData>({
+				httpMethod,
+				path: uuid(),
+				workflowId: otherWorkflowEntity.id,
+			});
+			const hash = {
+				'own-key': { workflowEntity, webhook },
+				'other-key': { workflowEntity: otherWorkflowEntity, webhook: otherWebhook },
+			};
+
+			const registrationsByKey = new Map(Object.entries(hash));
+
+			registrations.getAllKeys.mockResolvedValue([...registrationsByKey.keys()]);
+			registrations.get.mockImplementation(async (key) => registrationsByKey.get(key));
+			registrations.getRegistrationsHash.mockResolvedValue(hash);
+
+			const deactivateSpy = jest.spyOn(testWebhooks, 'deactivateWebhooks');
+
+			const result = await testWebhooks.cancelWebhook(workflowEntity.id);
+			await deactivateSpy.mock.results[0]?.value;
+
+			expect(result).toBe(true);
+			expect(deactivateSpy).toHaveBeenCalledTimes(1);
+			expect(registrations.deregister).toHaveBeenCalledWith('own-key');
+			expect(registrations.deregister).not.toHaveBeenCalledWith('other-key');
+			expect(registrations.deregisterAll).not.toHaveBeenCalled();
+
+			deactivateSpy.mockRestore();
+		});
+
+		test('should return false when the workflow has no test webhook', async () => {
+			registrations.getAllKeys.mockResolvedValue(['own-key']);
+			registrations.get.mockResolvedValue({ workflowEntity, webhook });
+
+			const result = await testWebhooks.cancelWebhook(generateNanoId());
+
+			expect(result).toBe(false);
+			expect(webhookService.deleteWebhook).not.toHaveBeenCalled();
+			expect(registrations.deregister).not.toHaveBeenCalled();
 		});
 	});
 

@@ -46,7 +46,8 @@ type EndpointGroup =
 	| 'module-settings'
 	| 'data-table'
 	| 'third-party-licenses'
-	| 'mcp';
+	| 'mcp'
+	| 'test-webhooks';
 
 type ModuleName = 'insights' | 'external-secrets' | 'community-packages' | 'data-table' | 'mcp';
 
