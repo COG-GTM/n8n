@@ -100,19 +100,32 @@ function areOverlapping(
 	);
 }
 
-const URL_PARTS_REGEX = /(?<protocolPlusDomain>.*?\..*?)(?<pathname>\/.*)/;
+const MAX_MALFORMED_URL_LENGTH = 2048;
 
-export function getDomainBase(raw: string, urlParts = URL_PARTS_REGEX): string {
+/**
+ * Split a URL that `new URL()` rejects into everything before the first `/` that
+ * follows the first `.` and the remainder. Linear time, so attacker-controlled
+ * node parameters cannot stall the process.
+ */
+function splitMalformedUrl(raw: string) {
+	if (typeof raw !== 'string' || raw.length > MAX_MALFORMED_URL_LENGTH) return undefined;
+
+	const firstDot = raw.indexOf('.');
+	if (firstDot === -1) return undefined;
+
+	const pathStart = raw.indexOf('/', firstDot + 1);
+	if (pathStart === -1) return undefined;
+
+	return { protocolPlusDomain: raw.slice(0, pathStart), pathname: raw.slice(pathStart) };
+}
+
+export function getDomainBase(raw: string): string {
 	try {
 		const url = new URL(raw);
 
 		return [url.protocol, url.hostname].join('//');
 	} catch {
-		const match = urlParts.exec(raw);
-
-		if (!match?.groups?.protocolPlusDomain) return '';
-
-		return match.groups.protocolPlusDomain;
+		return splitMalformedUrl(raw)?.protocolPlusDomain ?? '';
 	}
 }
 
@@ -134,7 +147,7 @@ function sanitizeRoute(raw: string, check = isSensitive, char = ANONYMIZATION_CH
 /**
  * Return pathname plus query string from URL, anonymizing IDs in route and query params.
  */
-export function getDomainPath(raw: string, urlParts = URL_PARTS_REGEX): string {
+export function getDomainPath(raw: string): string {
 	try {
 		const url = new URL(raw);
 
@@ -142,12 +155,12 @@ export function getDomainPath(raw: string, urlParts = URL_PARTS_REGEX): string {
 
 		return sanitizeRoute(url.pathname);
 	} catch {
-		const match = urlParts.exec(raw);
+		const pathname = splitMalformedUrl(raw)?.pathname;
 
-		if (!match?.groups?.pathname) return '';
+		if (!pathname) return '';
 
 		// discard query string
-		const route = match.groups.pathname.split('?').shift() as string;
+		const route = pathname.split('?')[0];
 
 		return sanitizeRoute(route);
 	}
