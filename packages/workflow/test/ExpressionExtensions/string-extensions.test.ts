@@ -179,6 +179,8 @@ describe('Data Transformation Functions', () => {
 			expect(evaluate('={{ "...abc. DEF?ghi".toSentenceCase() }}')).toEqual('...Abc. Def?Ghi');
 			expect(evaluate('={{ "hi. 123".toSentenceCase() }}')).toEqual('Hi.');
 			expect(evaluate('={{ "123".toSentenceCase() }}')).toEqual('');
+			expect(evaluate('={{ "hi. 𐐨 test".toSentenceCase() }}')).toEqual('Hi. 𐐀 test');
+			expect(evaluate('={{ ".ß".toSentenceCase() }}')).toEqual('.SS');
 		});
 
 		test('.toSentenceCase should run in linear time on many short sentences', () => {
