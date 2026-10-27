@@ -198,6 +198,13 @@ const requiresRuntimeCheck = (node: { computed?: boolean | null; property: unkno
 	return true;
 };
 
+/**
+ * Statically validates an object property key (in literals and destructuring patterns).
+ * Returns `true` when the key can only be validated at runtime.
+ */
+const requiresRuntimeKeyCheck = (node: { computed?: boolean | null; key: unknown }) =>
+	requiresRuntimeCheck({ computed: node.computed, property: node.key });
+
 export const PrototypeSanitizer: ASTAfterHook = (ast, dataNode) => {
 	astVisit(ast, {
 		visitMemberExpression(path) {
@@ -212,51 +219,42 @@ export const PrototypeSanitizer: ASTAfterHook = (ast, dataNode) => {
 				path.get('property').replace(wrapInSanitizer(dataNode, path.node.property));
 			}
 		},
-		visitObjectPattern(path) {
+		// Object keys are checked regardless of whether the object is a literal or a
+		// destructuring target, since some parsers represent assignment destructuring
+		// (`({ constructor: c } = fn)`) as an ObjectExpression.
+		visitProperty(path) {
 			this.traverse(path);
-			path.node.properties.forEach((property, index) => {
-				if (property.type !== 'Property' && property.type !== 'ObjectProperty') return;
-
-				if (property.computed) {
-					const staticKey = getStaticLiteralKey(property.key);
-					if (staticKey !== undefined) {
-						assertSafeProperty(staticKey);
-					} else {
-						path
-							.get('properties', index, 'key')
-							.replace(wrapInSanitizer(dataNode, property.key));
-					}
-					return;
-				}
-
-				if (property.key.type === 'Identifier') {
-					assertSafeProperty(property.key.name);
-					return;
-				}
-
-				const staticKey = getStaticLiteralKey(property.key);
-				if (staticKey === undefined) {
-					throw new ExpressionError(
-						`Unknown property type ${property.key.type} while sanitising expression`,
-					);
-				}
-				assertSafeProperty(staticKey);
-			});
+			if (requiresRuntimeKeyCheck(path.node)) {
+				path.get('key').replace(wrapInSanitizer(dataNode, path.node.key));
+			}
+		},
+		visitObjectProperty(path) {
+			this.traverse(path);
+			if (requiresRuntimeKeyCheck(path.node)) {
+				path.get('key').replace(wrapInSanitizer(dataNode, path.node.key));
+			}
 		},
 	});
 };
 
 /**
- * Runtime check for computed property keys. The key is coerced to a property key
- * *before* the check and the coerced value is returned, so values like
- * `['constructor']` or objects with a custom `toString` cannot bypass the check.
+ * Runtime check for computed property keys. The key is converted to a property key
+ * (string or symbol) *before* the check and the converted key is returned, so values
+ * like `['constructor']` or objects with a custom `toString` cannot bypass the check.
  */
 export const sanitizer = (value: unknown): unknown => {
 	if (typeof value === 'symbol' || typeof value === 'number') {
 		return value;
 	}
 
-	const key = String(value);
+	// A computed key in an object literal applies JavaScript's own ToPropertyKey
+	// conversion exactly once (incl. boxed symbols and Symbol.toPrimitive).
+	// eslint-disable-next-line @typescript-eslint/consistent-type-assertions
+	const [key] = Reflect.ownKeys({ [value as PropertyKey]: null });
+	if (typeof key === 'symbol') {
+		return key;
+	}
+
 	assertSafeProperty(key);
 	return key;
 };

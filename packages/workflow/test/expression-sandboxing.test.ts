@@ -228,6 +228,14 @@ describe('PrototypeSanitizer', () => {
 			['destructuring with string key', "{{ (({ 'constructor': c }) => c)(Math.max) }}"],
 			['destructuring with computed key', '{{ (({ [`constructor`]: c }) => c)(Math.max) }}'],
 			[
+				'assignment destructuring',
+				'{{ (() => { let c; ({ constructor: c } = Math.max); return c })() }}',
+			],
+			[
+				'assignment destructuring with template key',
+				'{{ (() => { let c; ({ [`constructor`]: c } = Math.max); return c })() }}',
+			],
+			[
 				'getOwnPropertyDescriptor',
 				"{{ Object.getOwnPropertyDescriptor(Math.max, 'name') }}",
 			],
@@ -263,6 +271,14 @@ describe('PrototypeSanitizer', () => {
 			expect(tournament.execute('{{ obj.b[0 + 1] }}', data)).toBe(20);
 			expect(tournament.execute("{{ obj[['a']] }}", data)).toBe(1);
 			expect(tournament.execute('{{ (({ a }) => a)(obj) }}', data)).toBe(1);
+			expect(tournament.execute('{{ ({ [key]: 2 }).a }}', data)).toBe(2);
+			expect(
+				tournament.execute('{{ obj.b[Object(Symbol.iterator)]().next().value }}', {
+					...data,
+					Object,
+					Symbol,
+				}),
+			).toBe(10);
 		});
 
 		it('should not allow access to constructor', () => {
