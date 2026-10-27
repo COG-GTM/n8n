@@ -268,11 +268,20 @@ export const thisSanitizer = (value: unknown): unknown =>
 	value === globalThis ? undefined : value;
 
 /**
+ * Applies the engine's own ToPropertyKey exactly once (boxed symbols stay symbols).
+ */
+const toPropertyKey = (value: unknown): string | symbol => {
+	if (typeof value === 'symbol' || typeof value === 'string') return value;
+	// The engine performs ToPropertyKey on non-key values here, despite the type annotation
+	return Reflect.ownKeys({ [value as PropertyKey]: 0 })[0];
+};
+
+/**
  * Runtime check for computed property keys. Coerces the key once so objects with a
  * custom `toString` cannot return a safe name here and a forbidden one on access.
  */
 export const sanitizer = (value: unknown): unknown => {
-	const key = typeof value === 'symbol' ? value : String(value);
+	const key = toPropertyKey(value);
 	if (!isSafeExpressionProperty(key)) throw securityError(key);
 	return key;
 };

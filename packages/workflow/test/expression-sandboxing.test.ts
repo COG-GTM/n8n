@@ -244,6 +244,13 @@ describe('PrototypeSanitizer', () => {
 				toString: () => (calls++ === 0 ? 'name' : 'constructor'),
 			};
 			expect(tournament.execute('{{ parseInt[key] }}', { ...data, key })).toBe('parseInt');
+			expect(
+				tournament.execute('{{ ({ [Symbol.iterator]: 42 })[Object(Symbol.iterator)] }}', {
+					...data,
+					Symbol,
+				}),
+			).toBe(42);
+			expect(tournament.execute('{{ [1, 2, 3][1.0] }}', data)).toBe(2);
 		});
 
 		it.each([
