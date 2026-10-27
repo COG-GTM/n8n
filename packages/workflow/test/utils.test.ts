@@ -379,6 +379,7 @@ describe('isSafeObjectProperty', () => {
 		['prototype', false],
 		['constructor', false],
 		['getPrototypeOf', false],
+		['binding', true],
 		['safeKey', true],
 		['anotherKey', true],
 		['toString', true],
