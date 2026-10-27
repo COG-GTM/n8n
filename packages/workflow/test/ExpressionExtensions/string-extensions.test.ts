@@ -176,6 +176,17 @@ describe('Data Transformation Functions', () => {
 			).toEqual('I am a test! I have multiple types of punctuation. Or do i?');
 			expect(evaluate('={{ "i am a test!".toSentenceCase() }}')).toEqual('I am a test!');
 			expect(evaluate('={{ "i am a test".toSentenceCase() }}')).toEqual('I am a test');
+			expect(evaluate('={{ "...abc. DEF?ghi".toSentenceCase() }}')).toEqual('...Abc. Def?Ghi');
+			expect(evaluate('={{ "hi. 123".toSentenceCase() }}')).toEqual('Hi.');
+			expect(evaluate('={{ "123".toSentenceCase() }}')).toEqual('');
+		});
+
+		test('.toSentenceCase should run in linear time on many short sentences', () => {
+			const input = 'a.'.repeat(500_000);
+			const start = Date.now();
+			const result = evaluate('={{ $json.text.toSentenceCase() }}', [{ text: input }]);
+			expect(Date.now() - start).toBeLessThan(5_000);
+			expect(result).toEqual('A.'.repeat(500_000));
 		});
 
 		test('.extractUrl should work on a string', () => {
