@@ -420,7 +420,18 @@ export class ExecutionRepository extends Repository<ExecutionEntity> {
 		return startedAt;
 	}
 
-	async updateExistingExecution(executionId: string, execution: Partial<IExecutionResponse>) {
+	/**
+	 * Update an existing execution and its data.
+	 *
+	 * When `requireStatus` is given, the update only applies if the execution's
+	 * current status is one of those statuses, so concurrent callers can use it
+	 * to atomically claim an execution. Returns whether the update was applied.
+	 */
+	async updateExistingExecution(
+		executionId: string,
+		execution: Partial<IExecutionResponse>,
+		{ requireStatus }: { requireStatus?: ExecutionStatus[] } = {},
+	): Promise<boolean> {
 		const {
 			id,
 			data,
@@ -437,6 +448,14 @@ export class ExecutionRepository extends Repository<ExecutionEntity> {
 		if (workflowData) executionData.workflowData = workflowData;
 		if (data) executionData.data = stringify(data);
 
+		const where: FindOptionsWhere<ExecutionEntity> = requireStatus
+			? { id: executionId, status: In(requireStatus) }
+			: { id: executionId };
+
+		if (requireStatus && Object.keys(executionInformation).length === 0) {
+			throw new UnexpectedError('Conditional update requires execution fields to update');
+		}
+
 		const { type: dbType, sqlite: sqliteConfig } = this.globalConfig.database;
 
 		if (dbType === 'sqlite' && sqliteConfig.poolSize === 0) {
@@ -444,26 +463,30 @@ export class ExecutionRepository extends Repository<ExecutionEntity> {
 			// In the non-pooling sqlite driver we can't use transactions, because that creates nested transactions under highly concurrent loads, leading to errors in the database
 
 			if (Object.keys(executionInformation).length > 0) {
-				await this.update({ id: executionId }, executionInformation);
+				const result = await this.update(where, executionInformation);
+				if (requireStatus && result.affected === 0) return false;
 			}
 
 			if (Object.keys(executionData).length > 0) {
 				await this.executionDataRepository.update({ executionId }, executionData);
 			}
 
-			return;
+			return true;
 		}
 
 		// All other database drivers should update executions and execution-data atomically
 
-		await this.manager.transaction(async (tx) => {
+		return await this.manager.transaction(async (tx) => {
 			if (Object.keys(executionInformation).length > 0) {
-				await tx.update(ExecutionEntity, { id: executionId }, executionInformation);
+				const result = await tx.update(ExecutionEntity, where, executionInformation);
+				if (requireStatus && result.affected === 0) return false;
 			}
 
 			if (Object.keys(executionData).length > 0) {
 				await tx.update(ExecutionData, { executionId }, executionData);
 			}
+
+			return true;
 		});
 	}
 

@@ -54,6 +54,7 @@ import type {
 
 import { ActiveExecutions } from '@/active-executions';
 import { MCP_TRIGGER_NODE_TYPE } from '@/constants';
+import { ExecutionAlreadyResumedError } from '@/errors/execution-already-resumed.error';
 import { InternalServerError } from '@/errors/response-errors/internal-server.error';
 import { NotFoundError } from '@/errors/response-errors/not-found.error';
 import { UnprocessableRequestError } from '@/errors/response-errors/unprocessable.error';
@@ -431,6 +432,7 @@ export async function executeWebhook(
 	additionalData.httpResponse = res;
 
 	let didSendResponse = false;
+	let resumeClaimedId: string | undefined;
 	let runExecutionDataMerge = {};
 	try {
 		// Run the webhook function to see what should be returned and if
@@ -562,15 +564,6 @@ export async function executeWebhook(
 			return;
 		}
 
-		// Now that we know that the workflow should run we can return the default response
-		// directly if responseMode it set to "onReceived" and a response should be sent
-		if (responseMode === 'onReceived' && !didSendResponse) {
-			const responseBody = extractWebhookOnReceivedResponse(responseData, webhookResultData);
-			const webhookResponse = createStaticResponse(responseBody, responseCode, responseHeaders);
-			responseCallback(null, webhookResponse);
-			didSendResponse = true;
-		}
-
 		// Prepare execution data
 		const { runExecutionData: preparedRunExecutionData, pinData } = prepareExecutionData(
 			executionMode,
@@ -596,6 +589,32 @@ export async function executeWebhook(
 		// When resuming from a wait node, copy over the pushRef from the execution-data
 		if (!runData.pushRef) {
 			runData.pushRef = runExecutionData.pushRef;
+		}
+
+		// When resuming a waiting execution, claim it before responding to the caller
+		// so that concurrent resume requests cannot run it twice.
+		if (executionId !== undefined) {
+			const claimed = await Container.get(ActiveExecutions).claimForResume(
+				executionId,
+				runData,
+			);
+			if (!claimed) {
+				if (!didSendResponse) {
+					responseCallback(new ExecutionAlreadyResumedError(executionId), {});
+					didSendResponse = true;
+				}
+				return;
+			}
+			resumeClaimedId = executionId;
+		}
+
+		// Now that we know that the workflow should run we can return the default response
+		// directly if responseMode it set to "onReceived" and a response should be sent
+		if (responseMode === 'onReceived' && !didSendResponse) {
+			const responseBody = extractWebhookOnReceivedResponse(responseData, webhookResultData);
+			const webhookResponse = createStaticResponse(responseBody, responseCode, responseHeaders);
+			responseCallback(null, webhookResponse);
+			didSendResponse = true;
 		}
 
 		let responsePromise: IDeferredPromise<IN8nHttpFullResponse> | undefined;
@@ -761,8 +780,18 @@ export async function executeWebhook(
 		}
 		return executionId;
 	} catch (e) {
+		if (resumeClaimedId !== undefined) {
+			await Container.get(ActiveExecutions)
+				.releaseResumeClaim(resumeClaimedId)
+				.catch((error: unknown) =>
+					Container.get(Logger).error('Failed to release claim on waiting execution', {
+						executionId: resumeClaimedId,
+						error,
+					}),
+				);
+		}
 		const error =
-			e instanceof UnprocessableRequestError
+			e instanceof UnprocessableRequestError || e instanceof ExecutionAlreadyResumedError
 				? e
 				: new OperationalError('There was a problem executing the workflow', {
 						cause: e,

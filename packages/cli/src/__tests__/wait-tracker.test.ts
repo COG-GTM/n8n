@@ -6,6 +6,7 @@ import type { IRun, IWorkflowBase } from 'n8n-workflow';
 import { createDeferredPromise } from 'n8n-workflow';
 
 import type { ActiveExecutions } from '@/active-executions';
+import { ExecutionAlreadyResumedError } from '@/errors/execution-already-resumed.error';
 import type { MultiMainSetup } from '@/scaling/multi-main-setup.ee';
 import type { OwnershipService } from '@/services/ownership.service';
 import { WaitTracker } from '@/wait-tracker';
@@ -143,6 +144,19 @@ describe('WaitTracker', () => {
 				false,
 				execution.id,
 			);
+		});
+
+		it('should not throw if the execution was already resumed elsewhere', async () => {
+			workflowRunner.run.mockRejectedValueOnce(new ExecutionAlreadyResumedError(execution.id));
+
+			await expect(waitTracker.startExecution(execution.id)).resolves.toBeUndefined();
+		});
+
+		it('should rethrow other errors when starting the execution', async () => {
+			const error = new Error('boom');
+			workflowRunner.run.mockRejectedValueOnce(error);
+
+			await expect(waitTracker.startExecution(execution.id)).rejects.toThrow(error);
 		});
 
 		describe('parent execution restart behavior', () => {

@@ -6,6 +6,7 @@ import { InstanceSettings } from 'n8n-core';
 import { UnexpectedError, type IWorkflowExecutionDataProcess } from 'n8n-workflow';
 
 import { ActiveExecutions } from '@/active-executions';
+import { ExecutionAlreadyResumedError } from '@/errors/execution-already-resumed.error';
 import { OwnershipService } from '@/services/ownership.service';
 import { WorkflowRunner } from '@/workflow-runner';
 import { shouldRestartParentExecution } from './workflow-helpers';
@@ -124,7 +125,17 @@ export class WaitTracker {
 		};
 
 		// Start the execution again
-		await this.workflowRunner.run(data, false, false, executionId);
+		try {
+			await this.workflowRunner.run(data, false, false, executionId);
+		} catch (error) {
+			if (error instanceof ExecutionAlreadyResumedError) {
+				this.logger.debug(`Execution ${executionId} was already resumed elsewhere`, {
+					executionId,
+				});
+				return;
+			}
+			throw error;
+		}
 
 		const { parentExecution } = fullExecutionData.data;
 		if (shouldRestartParentExecution(parentExecution)) {

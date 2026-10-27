@@ -20,12 +20,16 @@ import {
 import { strict as assert } from 'node:assert';
 import type PCancelable from 'p-cancelable';
 
+import { ExecutionAlreadyResumedError } from '@/errors/execution-already-resumed.error';
 import { ExecutionNotFoundError } from '@/errors/execution-not-found-error';
 import type { IExecutingWorkflowData, IExecutionsCurrentSummary } from '@/interfaces';
 import { isWorkflowIdValid } from '@/utils';
 
 import { ConcurrencyControlService } from './concurrency/concurrency-control.service';
 import { EventService } from './events/event.service';
+
+/** Statuses an existing execution may be in when it is (re)started. */
+const RESUMABLE_EXECUTION_STATUSES: ExecutionStatus[] = ['new', 'waiting'];
 
 @Service()
 export class ActiveExecutions {
@@ -35,6 +39,12 @@ export class ActiveExecutions {
 	private activeExecutions: {
 		[executionId: string]: IExecutingWorkflowData;
 	} = {};
+
+	/**
+	 * Executions claimed via `claimForResume` in this process and not yet added,
+	 * mapped to the execution data the claimer will pass to `add()`.
+	 */
+	private readonly claimedForResume = new Map<string, IWorkflowExecutionDataProcess>();
 
 	constructor(
 		private readonly logger: Logger,
@@ -46,6 +56,40 @@ export class ActiveExecutions {
 
 	has(executionId: string) {
 		return this.activeExecutions[executionId] !== undefined;
+	}
+
+	/**
+	 * Atomically mark a `new` or `waiting` execution as `running`, so that only
+	 * one caller can resume it. Use this before responding to the caller of a
+	 * resume request; a later `add()` with the same `executionData` then reuses
+	 * the claim. Concurrency capacity is only acquired in `add()`, so that the
+	 * caller is not blocked on it.
+	 *
+	 * @returns `false` if the execution was already claimed by another caller.
+	 */
+	async claimForResume(
+		executionId: string,
+		executionData: IWorkflowExecutionDataProcess,
+	): Promise<boolean> {
+		const claimed = await this.executionRepository.updateExistingExecution(
+			executionId,
+			{ status: 'running' },
+			{ requireStatus: RESUMABLE_EXECUTION_STATUSES },
+		);
+		if (claimed) this.claimedForResume.set(executionId, executionData);
+		return claimed;
+	}
+
+	/**
+	 * Undo a `claimForResume` whose execution was never added.
+	 */
+	async releaseResumeClaim(executionId: string) {
+		if (!this.claimedForResume.delete(executionId)) return;
+		await this.executionRepository.updateExistingExecution(
+			executionId,
+			{ status: 'waiting' },
+			{ requireStatus: ['running'] },
+		);
 	}
 
 	/**
@@ -86,6 +130,11 @@ export class ActiveExecutions {
 
 			await this.concurrencyControl.throttle({ mode, executionId });
 
+			// Executions claimed via `claimForResume` are already `running`,
+			// unless they were canceled since.
+			const alreadyClaimed = this.claimedForResume.get(executionId) === executionData;
+			if (alreadyClaimed) this.claimedForResume.delete(executionId);
+
 			const execution: Pick<IExecutionDb, 'id' | 'data' | 'waitTill' | 'status'> = {
 				id: executionId,
 				data: executionData.executionData!,
@@ -94,7 +143,18 @@ export class ActiveExecutions {
 				// this is resuming, so keep `startedAt` as it was
 			};
 
-			await this.executionRepository.updateExistingExecution(executionId, execution);
+			// Atomically claim the execution so that concurrent resume attempts,
+			// e.g. duplicate webhook calls or the wait tracker, cannot resume it twice.
+			const claimed = await this.executionRepository.updateExistingExecution(
+				executionId,
+				execution,
+				{ requireStatus: alreadyClaimed ? ['running'] : RESUMABLE_EXECUTION_STATUSES },
+			);
+
+			if (!claimed) {
+				this.concurrencyControl.release({ mode });
+				throw new ExecutionAlreadyResumedError(executionId);
+			}
 		}
 
 		const resumingExecution = this.activeExecutions[executionId];
