@@ -59,17 +59,65 @@ describe('isHtmlRenderedContentType', () => {
 		});
 	});
 
-	describe('should handle non-HTML content types', () => {
+	describe('should handle other script-executing document types', () => {
+		test.each([
+			'image/svg+xml',
+			'IMAGE/SVG+XML',
+			'image/svg+xml; charset=utf-8',
+			'application/xml',
+			'text/xml',
+			'text/xml; charset=utf-8',
+			'application/mathml+xml',
+			'text/xsl',
+			'application/xslt+xml',
+			'application/rss+xml',
+			'application/atom+xml',
+			'application/vnd.custom+xml',
+		])('should return true for %s', (contentType) => {
+			expect(isHtmlRenderedContentType(contentType)).toBe(true);
+		});
+	});
+
+	describe('should handle content types that browsers sniff', () => {
+		test.each(['', '   ', ';charset=utf-8', 'html', 'xhtml', 'unknown/unknown', '*/*'])(
+			'should return true for "%s"',
+			(contentType) => {
+				expect(isHtmlRenderedContentType(contentType)).toBe(true);
+			},
+		);
+	});
+
+	describe('should handle whitespace and lists of content types', () => {
+		test.each([
+			' text/html',
+			'\ttext/html',
+			' image/svg+xml',
+			'\timage/svg+xml ; charset=utf-8',
+			'text/plain, text/html',
+			'application/json,image/svg+xml',
+			'text/plain,application/xml',
+			'application/pdf; name="a, b", image/svg+xml',
+		])('should return true for "%s"', (contentType) => {
+			expect(isHtmlRenderedContentType(contentType)).toBe(true);
+		});
+	});
+
+	describe('should handle non-rendered content types', () => {
 		test.each([
 			'text/plain',
-			'application/xml',
+			'text/plain; charset=utf-8',
+			' application/json',
+			'application/json,',
 			'text/css',
+			'text/csv',
 			'application/javascript',
+			'application/octet-stream',
 			'image/png',
+			'image/svg',
 			'application/pdf',
-			'',
-			'html',
-			'xhtml',
+			'application/xml-dtd',
+			'application/pdf; name="invoice, text/html; revision"',
+			'application/pdf; name="a\\", text/html"',
 		])('should return false for %s', (contentType) => {
 			expect(isHtmlRenderedContentType(contentType)).toBe(false);
 		});
@@ -78,7 +126,7 @@ describe('isHtmlRenderedContentType', () => {
 	it('should handle edge cases', () => {
 		expect(isHtmlRenderedContentType('text/htmlsomething')).toBe(true);
 		expect(isHtmlRenderedContentType('application/xhtml+xmlsomething')).toBe(true);
-		expect(isHtmlRenderedContentType(' text/html')).toBe(false);
+		expect(isHtmlRenderedContentType(' text/html')).toBe(true);
 		expect(isHtmlRenderedContentType('text/html ')).toBe(true);
 	});
 });
