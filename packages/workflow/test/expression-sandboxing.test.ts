@@ -44,6 +44,26 @@ describe('PrototypeSanitizer', () => {
 			}).toThrowError(errorRegex);
 		});
 
+		it.each(['mainModule', 'binding', '_linkedBinding', '_load'])(
+			'should not allow access to Node.js internal %s',
+			(property) => {
+				expect(() => {
+					tournament.execute(`{{ obj.${property} }}`, { obj: {} });
+				}).toThrowError(errorRegex);
+
+				expect(() => {
+					tournament.execute(`{{ obj["${property}"] }}`, { obj: {} });
+				}).toThrowError(errorRegex);
+
+				expect(() => {
+					tournament.execute(`{{ obj["${property}".toString()] }}`, {
+						__sanitize: sanitizer,
+						obj: {},
+					});
+				}).toThrowError(errorRegex);
+			},
+		);
+
 		it('should not allow access to constructor', () => {
 			expect(() => {
 				tournament.execute('{{ Number.constructor }}', {
@@ -405,6 +425,34 @@ describe('ThisSanitizer', () => {
 				__sanitize: sanitizer,
 			});
 			expect(result).toEqual({});
+		});
+
+		it('should not replace locally bound globalThis parameters', () => {
+			expect(
+				tournament.execute('{{ ((globalThis) => globalThis.value)({ value: 7 }) }}', {
+					__sanitize: sanitizer,
+				}),
+			).toBe(7);
+			expect(
+				tournament.execute(
+					'{{ (function (globalThis) { return globalThis.value; })({ value: 8 }) }}',
+					{ __sanitize: sanitizer },
+				),
+			).toBe(8);
+		});
+
+		it('should not replace globalThis used as a property name', () => {
+			expect(
+				tournament.execute('{{ ({ globalThis: 1 }).globalThis }}', { __sanitize: sanitizer }),
+			).toBe(1);
+		});
+
+		it('should still replace globalThis references inside functions with other locals', () => {
+			const result = tournament.execute(
+				'{{ ((x) => { const y = globalThis; return y.process; })(1) }}',
+				{ __sanitize: sanitizer },
+			);
+			expect(result).toBe(undefined);
 		});
 
 		it('should still allow access to workflow data via variables', () => {

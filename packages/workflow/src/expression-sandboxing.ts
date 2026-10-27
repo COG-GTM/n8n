@@ -17,6 +17,15 @@ const SAFE_GLOBAL = b.objectExpression([]);
 const SAFE_THIS = b.sequenceExpression([b.literal(0), EMPTY_CONTEXT]);
 
 /**
+ * Node.js internals that lead from `process` to `require` or native bindings.
+ * Kept separate from `isSafeObjectProperty`, which also filters ordinary user data.
+ */
+const unsafeExpressionProperties = new Set(['mainModule', 'binding', '_linkedBinding', '_load']);
+
+export const isSafeExpressionProperty = (property: string) =>
+	isSafeObjectProperty(property) && !unsafeExpressionProperties.has(property);
+
+/**
  * Helper to check if an expression is a valid property access with $ as the property.
  * Returns true for obj.$ or obj.nested.$ but false for bare $ or other expression contexts.
  */
@@ -58,6 +67,50 @@ const isValidDollarPropertyAccess = (expr: unknown): boolean => {
 };
 
 const GLOBAL_IDENTIFIERS = new Set(['globalThis']);
+
+/**
+ * Whether an identifier is a non-computed property name (`obj.globalThis`, `{ globalThis: 1 }`)
+ * rather than a variable reference.
+ */
+const isNonReferenceName = (parentNode: unknown, fieldName: unknown): boolean => {
+	if (typeof parentNode !== 'object' || parentNode === null || !('type' in parentNode)) {
+		return false;
+	}
+	const isComputed = 'computed' in parentNode && parentNode.computed === true;
+	if (isComputed) return false;
+
+	switch (parentNode.type) {
+		case 'MemberExpression':
+		case 'OptionalMemberExpression':
+			return fieldName === 'property';
+		case 'Property':
+		case 'ObjectProperty':
+		case 'MethodDefinition':
+		case 'PropertyDefinition':
+		case 'ClassProperty':
+			return fieldName === 'key';
+		default:
+			return false;
+	}
+};
+
+type ScopeLike = { lookup: (name: string) => { isGlobal: boolean } | null | undefined };
+
+const isScopeLike = (value: unknown): value is ScopeLike =>
+	typeof value === 'object' &&
+	value !== null &&
+	'lookup' in value &&
+	typeof value.lookup === 'function';
+
+/**
+ * Whether `name` is bound by a parameter or declaration inside the expression
+ * (e.g. `((globalThis) => globalThis.value)(obj)`), so it does not refer to the real global.
+ */
+const isLocallyDeclared = (scope: unknown, name: string): boolean => {
+	if (!isScopeLike(scope)) return false;
+	const declaringScope = scope.lookup(name);
+	return !!declaringScope && !declaringScope.isGlobal;
+};
 
 /**
  * Prevents regular functions from binding their `this` to the Node.js global.
@@ -124,16 +177,19 @@ export const ThisSanitizer: ASTBeforeHook = (ast, dataNode) => {
 			this.traverse(path);
 			const { node } = path;
 
-			if (GLOBAL_IDENTIFIERS.has(node.name)) {
-				const parent: unknown = path.parent;
-				const isPropertyName =
-					typeof parent === 'object' &&
-					parent !== null &&
-					'name' in parent &&
-					parent.name === 'property';
+			if (!GLOBAL_IDENTIFIERS.has(node.name)) return;
 
-				if (!isPropertyName) path.replace(SAFE_GLOBAL);
-			}
+			const parentPath: unknown = path.parent;
+			const parentNode =
+				typeof parentPath === 'object' && parentPath !== null && 'node' in parentPath
+					? parentPath.node
+					: undefined;
+			if (isNonReferenceName(parentNode, path.name)) return;
+
+			const scope: unknown = path.scope;
+			if (isLocallyDeclared(scope, node.name)) return;
+
+			path.replace(SAFE_GLOBAL);
 		},
 
 		visitThisExpression(path) {
@@ -242,14 +298,14 @@ export const PrototypeSanitizer: ASTAfterHook = (ast, dataNode) => {
 					);
 				}
 
-				if (!isSafeObjectProperty(node.property.name)) {
+				if (!isSafeExpressionProperty(node.property.name)) {
 					throw new ExpressionError(
 						`Cannot access "${node.property.name}" due to security concerns`,
 					);
 				}
 			} else if (node.property.type === 'StringLiteral' || node.property.type === 'Literal') {
 				// Check any static strings against our forbidden list
-				if (!isSafeObjectProperty(node.property.value as string)) {
+				if (!isSafeExpressionProperty(node.property.value as string)) {
 					throw new ExpressionError(
 						`Cannot access "${node.property.value as string}" due to security concerns`,
 					);
@@ -274,7 +330,7 @@ export const PrototypeSanitizer: ASTAfterHook = (ast, dataNode) => {
 };
 
 export const sanitizer = (value: unknown): unknown => {
-	if (!isSafeObjectProperty(value as string)) {
+	if (!isSafeExpressionProperty(value as string)) {
 		throw new ExpressionError(`Cannot access "${value as string}" due to security concerns`);
 	}
 	return value;

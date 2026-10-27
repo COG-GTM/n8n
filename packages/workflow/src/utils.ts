@@ -332,15 +332,7 @@ export function hasKey<T extends PropertyKey>(value: unknown, key: T): value is 
 	return value !== null && typeof value === 'object' && value.hasOwnProperty(key);
 }
 
-const unsafeObjectProperties = new Set([
-	'__proto__',
-	'prototype',
-	'constructor',
-	'getPrototypeOf',
-	'mainModule',
-	'binding',
-	'_load',
-]);
+const unsafeObjectProperties = new Set(['__proto__', 'prototype', 'constructor', 'getPrototypeOf']);
 
 /**
  * Checks if a property key is safe to use on an object, preventing prototype pollution.
