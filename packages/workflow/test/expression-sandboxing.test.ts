@@ -275,6 +275,21 @@ describe('ThisSanitizer', () => {
 			tournament.execute('{{ [1, 2].map(function (x) { return x * this.k }, { k: 3 }) }}', {}),
 		).toEqual([3, 6]);
 	});
+
+	it('should keep self-referential receivers and receivers with throwing getters working', () => {
+		expect(
+			tournament.execute(
+				'{{ (() => { const o = { value: 42, get() { return this.value } }; o.globalThis = o; return o.get() })() }}',
+				{},
+			),
+		).toBe(42);
+		expect(
+			tournament.execute(
+				'{{ ({ value: 7, get globalThis() { throw new Error("boom") }, get() { return this.value } }).get() }}',
+				{ Error },
+			),
+		).toBe(7);
+	});
 });
 
 describe('Process internals', () => {

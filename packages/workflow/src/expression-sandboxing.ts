@@ -131,6 +131,16 @@ const createEmptyContext = () =>
 	b.objectExpression([b.property('init', b.identifier('process'), b.objectExpression([]))]);
 
 /**
+ * `(function () { return this; })()` evaluates to the real global object,
+ * because expressions are compiled in sloppy mode.
+ */
+const createGlobalObjectReference = () =>
+	b.callExpression(
+		b.functionExpression(null, [], b.blockStatement([b.returnStatement(b.thisExpression())])),
+		[],
+	);
+
+/**
  * Prevents user code from reaching the real global object through `this`.
  *
  * Expressions are compiled in sloppy mode, so a non-arrow function invoked
@@ -139,24 +149,16 @@ const createEmptyContext = () =>
  * `this`, which exposes the unrestricted `process` object.
  *
  * Every user-written `this` is rewritten to
- * `(this && this.globalThis === this ? { process: {} } : this)`
+ * `(this === (function () { return this; })() ? { process: {} } : this)`
  * so that the global object is replaced by an inert object while ordinary
- * receivers (e.g. object methods) keep working.
+ * receivers (e.g. object methods) are left untouched.
  */
 export const ThisSanitizer: ASTBeforeHook = (ast) => {
 	astVisit(ast, {
 		visitThisExpression(path) {
 			path.replace(
 				b.conditionalExpression(
-					b.logicalExpression(
-						'&&',
-						b.thisExpression(),
-						b.binaryExpression(
-							'===',
-							b.memberExpression(b.thisExpression(), b.identifier('globalThis')),
-							b.thisExpression(),
-						),
-					),
+					b.binaryExpression('===', b.thisExpression(), createGlobalObjectReference()),
 					createEmptyContext(),
 					b.thisExpression(),
 				),
