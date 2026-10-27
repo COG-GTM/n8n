@@ -276,6 +276,18 @@ describe('ThisSanitizer', () => {
 		).toEqual([3, 6]);
 	});
 
+	it('should keep `this` undefined in unbound strict functions', () => {
+		expect(
+			tournament.execute("{{ (function () { 'use strict'; return this })() }}", {}),
+		).toBeUndefined();
+		expect(
+			tournament.execute(
+				"{{ (function () { 'use strict'; return (function () { return this })() })() }}",
+				{},
+			),
+		).toBeUndefined();
+	});
+
 	it('should keep self-referential receivers and receivers with throwing getters working', () => {
 		expect(
 			tournament.execute(
