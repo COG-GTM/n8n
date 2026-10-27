@@ -150,8 +150,9 @@ class WebhookRequestHandler {
 			}
 		}
 
-		const contentType = res.getHeader('content-type') as string | undefined;
-		const needsSandbox = !contentType || isHtmlRenderedContentType(contentType);
+		const contentType = res.getHeader('content-type');
+		const needsSandbox =
+			typeof contentType !== 'string' || isHtmlRenderedContentType(contentType);
 
 		if (needsSandbox && !isWebhookHtmlSandboxingDisabled()) {
 			res.setHeader('Content-Security-Policy', getWebhookSandboxCSP());
@@ -170,9 +171,10 @@ class WebhookRequestHandler {
 		responseHeader?: object,
 	) {
 		this.setResponseStatus(res, responseCode);
-		if (responseHeader) {
-			this.setResponseHeaders(res, new Map(Object.entries(responseHeader)));
-		}
+		this.setResponseHeaders(
+			res,
+			responseHeader ? new Map(Object.entries(responseHeader)) : undefined,
+		);
 
 		if (data instanceof Readable) {
 			data.pipe(res);

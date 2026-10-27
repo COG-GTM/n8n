@@ -1,10 +1,12 @@
 import { type Response } from 'express';
 import { mock } from 'jest-mock-extended';
+import { getWebhookSandboxCSP } from 'n8n-core';
 import { randomString } from 'n8n-workflow';
 import type { IHttpRequestMethods } from 'n8n-workflow';
 
 import { ResponseError } from '@/errors/response-errors/abstract/response.error';
 import { createWebhookHandlerFor } from '@/webhooks/webhook-request-handler';
+import { createStaticResponse } from '@/webhooks/webhook-response';
 import type {
 	IWebhookManager,
 	IWebhookResponseCallbackData,
@@ -214,5 +216,87 @@ describe('WebhookRequestHandler', () => {
 				expect(res.json).toHaveBeenCalledWith(executeWebhookResponse.data);
 			},
 		);
+	});
+
+	describe('webhook HTML sandbox', () => {
+		const sandboxCSP = getWebhookSandboxCSP();
+
+		const createResponse = () => {
+			const headers = new Map<string, unknown>();
+			const res = mock<Response>();
+			res.setHeader.mockImplementation((name, value) => {
+				headers.set(name.toLowerCase(), value);
+				return res;
+			});
+			res.getHeader.mockImplementation((name) => headers.get(name.toLowerCase()) as string);
+			return res;
+		};
+
+		const req = () => mock<WebhookRequest>({ method: 'GET', params: { path: 'test' } });
+
+		test.each([
+			'text/html',
+			'image/svg+xml',
+			'application/xml',
+			'text/xml; charset=utf-8',
+			'application/mathml+xml',
+			'text/xsl',
+			' image/svg+xml',
+			'text/plain, image/svg+xml',
+		])('should sandbox a static response with content-type "%s"', async (contentType) => {
+			const res = createResponse();
+			webhookManager.executeWebhook.mockResolvedValueOnce(
+				createStaticResponse(
+					'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+					200,
+					new Map([['content-type', contentType]]),
+				),
+			);
+
+			await handler(req(), res);
+
+			expect(res.setHeader).toHaveBeenCalledWith('Content-Security-Policy', sandboxCSP);
+		});
+
+		test.each(['application/json', 'text/plain', 'image/png', 'application/pdf'])(
+			'should not sandbox a static response with content-type "%s"',
+			async (contentType) => {
+				const res = createResponse();
+				webhookManager.executeWebhook.mockResolvedValueOnce(
+					createStaticResponse('data', 200, new Map([['content-type', contentType]])),
+				);
+
+				await handler(req(), res);
+
+				expect(res.setHeader).not.toHaveBeenCalledWith('Content-Security-Policy', sandboxCSP);
+			},
+		);
+
+		it('should sandbox a legacy response with an SVG content-type', async () => {
+			const res = createResponse();
+			webhookManager.executeWebhook.mockResolvedValueOnce({
+				responseCode: 200,
+				data: '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>',
+				headers: { 'content-type': 'image/svg+xml' },
+			});
+
+			await handler(req(), res);
+
+			expect(res.setHeader).toHaveBeenCalledWith('content-type', 'image/svg+xml');
+			expect(res.setHeader).toHaveBeenCalledWith('Content-Security-Policy', sandboxCSP);
+		});
+
+		it('should sandbox a legacy string response without headers', async () => {
+			const res = createResponse();
+			webhookManager.executeWebhook.mockResolvedValueOnce({
+				responseCode: 200,
+				data: '<script>alert(1)</script>',
+			});
+
+			await handler(req(), res);
+
+			expect(res.setHeader).toHaveBeenCalledWith('Content-Security-Policy', sandboxCSP);
+			expect(res.send).toHaveBeenCalledWith('<script>alert(1)</script>');
+		});
 	});
 });
