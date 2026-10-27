@@ -167,6 +167,37 @@ describe('WebhookRequestHandler', () => {
 			expect(res.json).toHaveBeenCalledWith(executeWebhookResponse.data);
 		});
 
+		it('should not set cookie or other disallowed headers supplied by the workflow', async () => {
+			const req = mock<WebhookRequest>({
+				method: 'GET',
+				params: { path: 'test' },
+			});
+
+			const res = mock<Response>();
+
+			const executeWebhookResponse: IWebhookResponseCallbackData = {
+				responseCode: 200,
+				data: {},
+				headers: {
+					'set-cookie': 'n8n-auth=attacker-token; Path=/',
+					'Set-Cookie': 'n8n-browserId=attacker; Path=/',
+					'clear-site-data': '"cookies"',
+					'service-worker-allowed': '/',
+					'x-custom-header': 'test',
+				},
+			};
+			webhookManager.executeWebhook.mockResolvedValueOnce(executeWebhookResponse);
+
+			await handler(req, res);
+
+			expect(res.setHeader).toHaveBeenCalledWith('x-custom-header', 'test');
+			const setHeaderNames = res.setHeader.mock.calls.map(([name]) => name.toLowerCase());
+			expect(setHeaderNames).not.toContain('set-cookie');
+			expect(setHeaderNames).not.toContain('clear-site-data');
+			expect(setHeaderNames).not.toContain('service-worker-allowed');
+			expect(res.json).toHaveBeenCalledWith(executeWebhookResponse.data);
+		});
+
 		it('should send an error response if webhook execution throws', async () => {
 			class TestError extends ResponseError {}
 			const req = mock<WebhookRequest>({

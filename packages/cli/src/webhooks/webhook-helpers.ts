@@ -67,6 +67,7 @@ import { extractWebhookLastNodeResponse } from '@/webhooks/webhook-last-node-res
 import { extractWebhookOnReceivedResponse } from '@/webhooks/webhook-on-received-response-extractor';
 import type { WebhookResponse } from '@/webhooks/webhook-response';
 import { createStaticResponse, createStreamResponse } from '@/webhooks/webhook-response';
+import { sanitizeWebhookResponseHeaders } from '@/webhooks/webhook-response-sanitizer';
 import * as WorkflowExecuteAdditionalData from '@/workflow-execute-additional-data';
 import * as WorkflowHelpers from '@/workflow-helpers';
 import { WorkflowRunner } from '@/workflow-runner';
@@ -254,13 +255,13 @@ export function setupResponseNodePromise(
 		.then(async (response: IN8nHttpFullResponse) => {
 			const binaryData = (response.body as IDataObject)?.binaryData as IBinaryData;
 			if (binaryData?.id) {
-				res.header(response.headers);
+				res.header(sanitizeWebhookResponseHeaders(response.headers));
 				const stream = await Container.get(BinaryDataService).getAsStream(binaryData.id);
 				stream.pipe(res, { end: false });
 				await finished(stream);
 				responseCallback(null, { noWebhookResponse: true });
 			} else if (Buffer.isBuffer(response.body)) {
-				res.header(response.headers);
+				res.header(sanitizeWebhookResponseHeaders(response.headers));
 				res.end(response.body);
 				responseCallback(null, { noWebhookResponse: true });
 			} else {
@@ -522,7 +523,7 @@ export async function executeWebhook(
 
 		if (!res.headersSent && responseHeaders) {
 			// Only set given headers if they haven't been sent yet, e.g. for streaming
-			for (const [name, value] of responseHeaders.entries()) {
+			for (const [name, value] of sanitizeWebhookResponseHeaders(responseHeaders).entries()) {
 				res.setHeader(name, value);
 			}
 		}

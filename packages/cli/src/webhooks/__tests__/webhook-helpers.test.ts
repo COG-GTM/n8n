@@ -254,6 +254,36 @@ describe('setupResponseNodePromise', () => {
 		expect(responseCallback).toHaveBeenCalledWith(null, { noWebhookResponse: true });
 	});
 
+	test.each([
+		['binary data', { binaryData: { id: 'binary-123' } }],
+		['buffer', Buffer.from('test buffer')],
+	])('should strip Set-Cookie and Clear-Site-Data headers for %s responses', async (_, body) => {
+		binaryDataService.getAsStream.mockResolvedValue(mock<Readable>());
+
+		setupResponseNodePromise(
+			responsePromise,
+			res,
+			responseCallback,
+			workflowStartNode,
+			executionId,
+			workflow,
+		);
+
+		responsePromise.resolve({
+			body,
+			headers: {
+				'content-type': 'text/plain',
+				'Set-Cookie': 'n8n-auth=attacker-token; Path=/',
+				'clear-site-data': '"cookies"',
+			},
+			statusCode: 200,
+		});
+		await new Promise(process.nextTick);
+
+		expect(res.header).toHaveBeenCalledTimes(1);
+		expect(res.header).toHaveBeenCalledWith({ 'content-type': 'text/plain' });
+	});
+
 	test('should handle errors properly', async () => {
 		setupResponseNodePromise(
 			responsePromise,

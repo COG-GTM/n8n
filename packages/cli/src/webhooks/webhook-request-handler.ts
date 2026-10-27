@@ -23,6 +23,7 @@ import {
 	isWebhookResponse,
 	isWebhookStreamResponse,
 } from '@/webhooks/webhook-response';
+import { sanitizeWebhookResponseHeaders } from '@/webhooks/webhook-response-sanitizer';
 import { WebhookService } from '@/webhooks/webhook.service';
 import type {
 	IWebhookManager,
@@ -145,7 +146,7 @@ class WebhookRequestHandler {
 
 	private setResponseHeaders(res: express.Response, headers?: WebhookResponseHeaders) {
 		if (headers) {
-			for (const [name, value] of headers.entries()) {
+			for (const [name, value] of sanitizeWebhookResponseHeaders(headers).entries()) {
 				res.setHeader(name, value);
 			}
 		}
