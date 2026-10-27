@@ -17,6 +17,7 @@ import { objectExtensions } from './object-extensions';
 import { stringExtensions } from './string-extensions';
 import { checkIfValueDefinedOrThrow } from './utils';
 import { ExpressionExtensionError } from '../errors/expression-extension.error';
+import { isSafeObjectProperty } from '../utils';
 
 const EXPRESSION_EXTENDER = 'extend';
 const EXPRESSION_EXTENDER_OPTIONAL = 'extendOptional';
@@ -453,7 +454,29 @@ interface FoundFunction {
 	function: Function;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-restricted-types
+const FUNCTION_CONSTRUCTORS = new Set<Function>([
+	Function,
+	Object.getPrototypeOf(async function () {}).constructor,
+	Object.getPrototypeOf(function* () {}).constructor,
+	Object.getPrototypeOf(async function* () {}).constructor,
+]);
+
+function assertSafeFunctionName(functionName: unknown): asserts functionName is string {
+	if (
+		typeof functionName !== 'string' ||
+		!isSafeObjectProperty(functionName) ||
+		functionName.startsWith('__')
+	) {
+		throw new ExpressionExtensionError('Cannot access unsafe property', {
+			description: 'Accessing this property is not allowed due to security concerns',
+		});
+	}
+}
+
 function findExtendedFunction(input: unknown, functionName: string): FoundFunction | undefined {
+	assertSafeFunctionName(functionName);
+
 	// eslint-disable-next-line @typescript-eslint/no-restricted-types
 	let foundFunction: Function | undefined;
 	if (Array.isArray(input)) {
@@ -483,8 +506,14 @@ function findExtendedFunction(input: unknown, functionName: string): FoundFuncti
 		// This is likely a builtin we're implementing for another type
 		// (e.g. toLocaleString). We'll return that instead
 		if (inputAny && functionName && typeof inputAny[functionName] === 'function') {
-			// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-			return { type: 'native', function: inputAny[functionName] };
+			// eslint-disable-next-line @typescript-eslint/no-restricted-types
+			const nativeFunction: Function = inputAny[functionName];
+			if (FUNCTION_CONSTRUCTORS.has(nativeFunction)) {
+				throw new ExpressionExtensionError('Cannot access unsafe property', {
+					description: 'Accessing this property is not allowed due to security concerns',
+				});
+			}
+			return { type: 'native', function: nativeFunction };
 		}
 
 		// Use a generic version if available

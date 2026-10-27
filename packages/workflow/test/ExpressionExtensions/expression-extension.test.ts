@@ -4,7 +4,7 @@
 
 import { evaluate } from './helpers';
 import { ExpressionExtensionError } from '../../src/errors/expression-extension.error';
-import { extendTransform, extend } from '../../src/extensions';
+import { extendTransform, extend, extendOptional } from '../../src/extensions';
 import { joinExpression, splitExpression } from '../../src/extensions/expression-parser';
 
 describe('Expression Extension Transforms', () => {
@@ -24,6 +24,37 @@ describe('Expression Extension Transforms', () => {
 				'extend(extend("aaa ", "toSnakeCase", []).trim(), "toSentenceCase", [2])',
 			);
 		});
+	});
+});
+
+describe('extend() / extendOptional() security', () => {
+	test.each([
+		["{{ extend(parseInt, 'constructor', ['return 1']) }}"],
+		["{{ extend(parseInt, 'constructor', ['return process'])() }}"],
+		["{{ extendOptional(Object, 'constructor') }}"],
+		["{{ extendOptional(parseInt, 'constructor')('return 1')() }}"],
+		["{{ extend('x', '__proto__', []) }}"],
+		["{{ extend({}, '__lookupGetter__', ['__proto__']) }}"],
+		["{{ extend(Object, 'getPrototypeOf', [{}]) }}"],
+		["{{ extend(parseInt, 'prototype', []) }}"],
+	])('should throw for unsafe function name: %s', (expression) => {
+		expect(() => evaluate(`=${expression}`)).toThrow('Cannot access unsafe property');
+	});
+
+	test('should not return the Function constructor via native fallback', () => {
+		const input = { fn: Function };
+		expect(() => extend(input, 'fn', ['return 1'])).toThrow(ExpressionExtensionError);
+		expect(() => extendOptional(input, 'fn')).toThrow(ExpressionExtensionError);
+		const asyncFunctionCtor = Object.getPrototypeOf(async function () {}).constructor;
+		expect(() => extend({ fn: asyncFunctionCtor }, 'fn', ['return 1'])).toThrow(
+			ExpressionExtensionError,
+		);
+	});
+
+	test('should still allow native fallback for safe builtins', () => {
+		expect(extend('abc', 'toUpperCase', [])).toBe('ABC');
+		expect(extendOptional([1, 2], 'includes')?.(2)).toBe(true);
+		expect(evaluate('={{ "  abc ".trim().toSnakeCase() }}')).toBe('abc');
 	});
 });
 
