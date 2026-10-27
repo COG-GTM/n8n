@@ -247,14 +247,17 @@ export function setupResponseNodePromise(
 	res: express.Response,
 	responseCallback: (error: Error | null, data: IWebhookResponseCallbackData) => void,
 	workflowStartNode: INode,
-	executionId: string | undefined,
+	getExecutionId: () => string | undefined,
 	workflow: Workflow,
 ): void {
 	void responsePromise.promise
 		.then(async (response: IN8nHttpFullResponse) => {
 			const binaryData = (response.body as IDataObject)?.binaryData as IBinaryData;
 			if (binaryData?.id) {
-				assertBinaryDataIdInScope(binaryData.id, { workflowId: workflow.id, executionId });
+				assertBinaryDataIdInScope(binaryData.id, {
+					workflowId: workflow.id,
+					executionId: getExecutionId(),
+				});
 				res.header(response.headers);
 				const stream = await Container.get(BinaryDataService).getAsStream(binaryData.id);
 				stream.pipe(res, { end: false });
@@ -282,6 +285,7 @@ export function setupResponseNodePromise(
 			process.nextTick(() => res.end());
 		})
 		.catch(async (error) => {
+			const executionId = getExecutionId();
 			Container.get(ErrorReporter).error(error);
 			Container.get(Logger).error(
 				`Error with Webhook-Response for execution "${executionId}": "${error.message}"`,
@@ -607,7 +611,7 @@ export async function executeWebhook(
 				res,
 				responseCallback,
 				workflowStartNode,
-				executionId,
+				() => executionId,
 				workflow,
 			);
 		}

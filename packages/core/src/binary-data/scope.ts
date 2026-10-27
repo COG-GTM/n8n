@@ -2,8 +2,8 @@ import { BinaryDataScopeError } from '../errors/binary-data-scope.error';
 
 export type BinaryDataScope = {
 	workflowId: string;
-	/** When known, the binary data must also belong to this execution. */
-	executionId?: string;
+	/** Binary data is out of scope when the execution id is not known. */
+	executionId: string | undefined;
 };
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -15,14 +15,16 @@ const LEGACY_FILE_ID_REGEX =
 const TEMP_EXECUTION_ID = 'temp';
 
 function isExecutionIdInScope(executionIdInFileId: string, scope: BinaryDataScope) {
+	if (scope.executionId === undefined) return false;
+	// files uploaded to a Webhook node before the execution id exists are stored
+	// under `temp` until `restoreBinaryDataId` renames them at the end of the execution
 	if (executionIdInFileId === TEMP_EXECUTION_ID) return true;
-	if (scope.executionId === undefined) return /^\w+$/.test(executionIdInFileId);
 	return executionIdInFileId === scope.executionId;
 }
 
 /**
  * Whether a binary data id points to a file stored for the given workflow
- * (and execution, if known), e.g.
+ * execution, e.g.
  * `filesystem-v2:workflows/{workflowId}/executions/{executionId}/binary_data/{uuid}`.
  */
 export function isBinaryDataIdInScope(binaryDataId: string, scope: BinaryDataScope) {

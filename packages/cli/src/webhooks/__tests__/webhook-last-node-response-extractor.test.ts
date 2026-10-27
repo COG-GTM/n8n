@@ -258,10 +258,11 @@ describe('extractWebhookLastNodeResponse', () => {
 		});
 
 		test.each([
-			['another workflow', binaryDataId('other-workflow-id', executionId)],
-			['another execution', binaryDataId(workflowId, 'other-execution-id')],
-			['an arbitrary storage key', 's3:some/other/key'],
-		])('should return error when binary data belongs to %s', async (_, id) => {
+			['another workflow', binaryDataId('other-workflow-id', executionId), executionId],
+			['another execution', binaryDataId(workflowId, 'other-execution-id'), executionId],
+			['an arbitrary storage key', 's3:some/other/key', executionId],
+			['an unknown execution', binaryDataId(workflowId, 'other-execution-id'), undefined],
+		])('should return error when binary data belongs to %s', async (_, id, currentExecutionId) => {
 			const nodeExecutionData: INodeExecutionData = {
 				json: {},
 				binary: { data: { id, mimeType: 'application/pdf', data: '' } },
@@ -277,7 +278,7 @@ describe('extractWebhookLastNodeResponse', () => {
 				'firstEntryBinary',
 				lastNodeTaskData,
 				false,
-				executionId,
+				currentExecutionId,
 			);
 
 			expect(result).toEqual({

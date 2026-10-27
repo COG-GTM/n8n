@@ -185,7 +185,7 @@ describe('setupResponseNodePromise', () => {
 			res,
 			responseCallback,
 			workflowStartNode,
-			executionId,
+			() => executionId,
 			workflow,
 		);
 
@@ -217,7 +217,7 @@ describe('setupResponseNodePromise', () => {
 			res,
 			responseCallback,
 			workflowStartNode,
-			executionId,
+			() => executionId,
 			workflow,
 		);
 
@@ -236,6 +236,27 @@ describe('setupResponseNodePromise', () => {
 		expect(responseCallback).toHaveBeenCalledWith(null, { noWebhookResponse: true });
 	});
 
+	test('should reject binary data when the execution id is unknown', async () => {
+		setupResponseNodePromise(
+			responsePromise,
+			res,
+			responseCallback,
+			workflowStartNode,
+			() => undefined,
+			workflow,
+		);
+
+		responsePromise.resolve({
+			body: { binaryData: { id: binaryDataId(workflowId, 'other-execution-id') } },
+			headers: { 'content-type': 'application/pdf' },
+			statusCode: 200,
+		});
+		await new Promise(process.nextTick);
+
+		expect(binaryDataService.getAsStream).not.toHaveBeenCalled();
+		expect(responseCallback).toHaveBeenCalledWith(expect.any(BinaryDataScopeError), {});
+	});
+
 	test.each([
 		['another workflow', binaryDataId('other-workflow-id', executionId)],
 		['another execution', binaryDataId(workflowId, 'other-execution-id')],
@@ -246,7 +267,7 @@ describe('setupResponseNodePromise', () => {
 			res,
 			responseCallback,
 			workflowStartNode,
-			executionId,
+			() => executionId,
 			workflow,
 		);
 
@@ -268,7 +289,7 @@ describe('setupResponseNodePromise', () => {
 			res,
 			responseCallback,
 			workflowStartNode,
-			executionId,
+			() => executionId,
 			workflow,
 		);
 
@@ -291,7 +312,7 @@ describe('setupResponseNodePromise', () => {
 			res,
 			responseCallback,
 			workflowStartNode,
-			executionId,
+			() => executionId,
 			workflow,
 		);
 

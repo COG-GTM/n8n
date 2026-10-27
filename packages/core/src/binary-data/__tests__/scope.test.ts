@@ -30,8 +30,11 @@ describe('binary data scope', () => {
 			).toBe(true);
 		});
 
-		test('should accept any execution of the workflow when the execution id is unknown', () => {
-			expect(isBinaryDataIdInScope(`s3:${fileId(workflowId, '7')}`, { workflowId })).toBe(true);
+		test('should reject all ids when the execution id is unknown', () => {
+			const scope = { workflowId, executionId: undefined };
+
+			expect(isBinaryDataIdInScope(`s3:${fileId(workflowId, '7')}`, scope)).toBe(false);
+			expect(isBinaryDataIdInScope(`s3:${fileId(workflowId, 'temp')}`, scope)).toBe(false);
 		});
 
 		test.each(['filesystem-v2', 's3'])('should reject %s ids of another workflow', (mode) => {
@@ -75,10 +78,12 @@ describe('binary data scope', () => {
 		});
 
 		test('should reject ids without a mode or with an unknown mode', () => {
-			expect(isBinaryDataIdInScope(fileId(workflowId, executionId), { workflowId })).toBe(false);
-			expect(
-				isBinaryDataIdInScope(`database:${fileId(workflowId, executionId)}`, { workflowId }),
-			).toBe(false);
+			const scope = { workflowId, executionId };
+
+			expect(isBinaryDataIdInScope(fileId(workflowId, executionId), scope)).toBe(false);
+			expect(isBinaryDataIdInScope(`database:${fileId(workflowId, executionId)}`, scope)).toBe(
+				false,
+			);
 		});
 
 		test('should accept legacy filesystem ids only for the known execution', () => {
@@ -86,7 +91,7 @@ describe('binary data scope', () => {
 
 			expect(isBinaryDataIdInScope(legacyId, { workflowId, executionId })).toBe(true);
 			expect(isBinaryDataIdInScope(legacyId, { workflowId, executionId: '43' })).toBe(false);
-			expect(isBinaryDataIdInScope(legacyId, { workflowId })).toBe(false);
+			expect(isBinaryDataIdInScope(legacyId, { workflowId, executionId: undefined })).toBe(false);
 		});
 	});
 
