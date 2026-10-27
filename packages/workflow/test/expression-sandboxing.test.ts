@@ -272,6 +272,9 @@ describe('PrototypeSanitizer', () => {
 			expect(tournament.execute("{{ obj[['a']] }}", data)).toBe(1);
 			expect(tournament.execute('{{ (({ a }) => a)(obj) }}', data)).toBe(1);
 			expect(tournament.execute('{{ ({ [key]: 2 }).a }}', data)).toBe(2);
+			expect(tournament.execute("{{ ({ 'a': 3 }).a }}", data)).toBe(3);
+			expect(tournament.execute('{{ ({ 1: 4 })[1] }}', data)).toBe(4);
+			expect(tournament.execute("{{ (({ 'a': v }) => v)(obj) }}", data)).toBe(1);
 			expect(
 				tournament.execute('{{ obj.b[Object(Symbol.iterator)]().next().value }}', {
 					...data,

@@ -202,8 +202,29 @@ const requiresRuntimeCheck = (node: { computed?: boolean | null; property: unkno
  * Statically validates an object property key (in literals and destructuring patterns).
  * Returns `true` when the key can only be validated at runtime.
  */
-const requiresRuntimeKeyCheck = (node: { computed?: boolean | null; key: unknown }) =>
-	requiresRuntimeCheck({ computed: node.computed, property: node.key });
+const requiresRuntimeKeyCheck = (node: { computed?: boolean | null; key: unknown }) => {
+	if (!node.computed && isIdentifier(node.key)) {
+		assertSafeProperty(node.key.name);
+		return false;
+	}
+
+	// Non-computed keys may also be string/numeric literals (`{ 'a': 1 }`, `{ 1: x }`)
+	const staticKey = getStaticLiteralKey(node.key);
+	if (staticKey !== undefined) {
+		assertSafeProperty(staticKey);
+		return false;
+	}
+
+	if (!node.computed) {
+		const type =
+			typeof node.key === 'object' && node.key !== null && 'type' in node.key
+				? String(node.key.type)
+				: typeof node.key;
+		throw new ExpressionError(`Unknown property type ${type} while sanitising expression`);
+	}
+
+	return true;
+};
 
 export const PrototypeSanitizer: ASTAfterHook = (ast, dataNode) => {
 	astVisit(ast, {
