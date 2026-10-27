@@ -3,6 +3,7 @@ export const MAX_REGEX_PATTERN_LENGTH = 1000;
 type Quantifier = { min: number; max: number };
 
 const BRACE_QUANTIFIER = /^\{(\d+)(,(\d*))?\}/;
+const FIXED_LENGTH_ESCAPES = /^(?:x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|c[a-zA-Z]|\d+)/;
 
 function readQuantifier(source: string, index: number): { quantifier: Quantifier; end: number } | null {
 	const char = source[index];
@@ -44,6 +45,8 @@ function skipEscape(source: string, index: number): number {
 		const close = source.indexOf('>', index + 3);
 		return close === -1 ? source.length : close + 1;
 	}
+	const fixedLength = FIXED_LENGTH_ESCAPES.exec(source.slice(index + 1));
+	if (fixedLength) return index + 1 + fixedLength[0].length;
 	return index + 2;
 }
 
