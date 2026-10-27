@@ -11,7 +11,12 @@ import {
 // eslint-disable-next-line n8n-local-rules/misplaced-n8n-typeorm-import
 import { DataSource, EntityManager } from '@n8n/typeorm';
 import { Service } from '@n8n/di';
-import { type INode, type INodeCredentialsDetails, type IWorkflowBase } from 'n8n-workflow';
+import {
+	type INode,
+	type INodeCredentialsDetails,
+	type IWorkflowBase,
+	isValidTimezone,
+} from 'n8n-workflow';
 import { v4 as uuid } from 'uuid';
 import { readdir, readFile } from 'fs/promises';
 
@@ -72,6 +77,19 @@ export class ImportService {
 
 				if (!node.id) node.id = uuid();
 			});
+
+			const timezone: unknown = workflow.settings?.timezone;
+			if (
+				workflow.settings &&
+				timezone !== undefined &&
+				timezone !== 'DEFAULT' &&
+				!isValidTimezone(timezone)
+			) {
+				this.logger.warn(
+					`Ignoring invalid timezone in settings of workflow "${workflow.name}", using the instance default`,
+				);
+				delete workflow.settings.timezone;
+			}
 
 			const hasInvalidCreds = workflow.nodes.some((node) => !node.credentials?.id);
 

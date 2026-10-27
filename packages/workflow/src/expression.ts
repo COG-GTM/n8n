@@ -1,4 +1,4 @@
-import { DateTime, Duration, Interval } from 'luxon';
+import { DateTime, Duration, Interval, Settings } from 'luxon';
 
 import { ApplicationError } from '@n8n/errors';
 import { ExpressionExtensionError } from './errors/expression-extension.error';
@@ -9,7 +9,7 @@ import { isExpression } from './expressions/expression-helpers';
 import { extend, extendOptional } from './extensions';
 import { extendSyntax } from './extensions/expression-extension';
 import { extendedFunctions } from './extensions/extended-functions';
-import { getGlobalState } from './global-state';
+import { resolveTimezone } from './global-state';
 import type {
 	IDataObject,
 	IExecuteData,
@@ -207,7 +207,7 @@ export class Expression {
 		if (value instanceof Date) {
 			// We don't want to use JSON.stringify for dates since it disregards workflow timezone
 			result = DateTime.fromJSDate(value, {
-				zone: this.workflow.settings?.timezone ?? getGlobalState().defaultTimezone,
+				zone: resolveTimezone(this.workflow.settings?.timezone),
 			}).toISO();
 		} else if (DateTime.isDateTime(value)) {
 			result = value.toString();
@@ -312,7 +312,7 @@ export class Expression {
 
 		// Execute the expression
 		const extendedExpression = extendSyntax(parameterValue);
-		const returnValue = this.renderExpression(extendedExpression, data);
+		const returnValue = this.renderExpressionInWorkflowTimezone(extendedExpression, data);
 		if (typeof returnValue === 'function') {
 			if (returnValue.name === 'DateTime')
 				throw new ApplicationError('this is a DateTime, please access its methods');
@@ -327,6 +327,21 @@ export class Expression {
 		}
 
 		return returnValue;
+	}
+
+	/**
+	 * Evaluation is synchronous, so the workflow timezone is applied as Luxon's default zone
+	 * only while this expression runs and the previous default is always restored afterwards.
+	 * This keeps one workflow's timezone from leaking into other workflows in the same process.
+	 */
+	private renderExpressionInWorkflowTimezone(expression: string, data: IWorkflowDataProxyData) {
+		const previousDefaultZone = Settings.defaultZone;
+		Settings.defaultZone = resolveTimezone(this.workflow.settings?.timezone);
+		try {
+			return this.renderExpression(expression, data);
+		} finally {
+			Settings.defaultZone = previousDefaultZone;
+		}
 	}
 
 	private renderExpression(expression: string, data: IWorkflowDataProxyData) {

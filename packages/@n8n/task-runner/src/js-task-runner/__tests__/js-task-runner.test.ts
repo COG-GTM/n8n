@@ -458,6 +458,26 @@ describe('JsTaskRunner', () => {
 				expect(outcome.result).toEqual({ val: expect.closeTo(helsinkiTimeNow, 1) });
 			});
 
+			it('should fall back to the default timezone when the workflow timezone is invalid', async () => {
+				setGlobalState({
+					defaultTimezone: 'Europe/Helsinki',
+				});
+				const taskData = newDataRequestResponse(inputItems.map(wrapIntoJson), {});
+				taskData.workflow.settings = {
+					timezone: 'Not/AZone',
+				};
+
+				const outcome = await execTaskWithParams({
+					task: newTaskParamsWithSettings({
+						code: 'return { valid: DateTime.now().isValid, zone: $now.zoneName }',
+						nodeMode: 'runOnceForAllItems',
+					}),
+					taskData,
+				});
+
+				expect(outcome.result).toEqual({ valid: true, zone: 'Europe/Helsinki' });
+			});
+
 			it('should use the default timezone', async () => {
 				setGlobalState({
 					defaultTimezone: 'Europe/Helsinki',

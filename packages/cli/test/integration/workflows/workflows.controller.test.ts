@@ -2359,6 +2359,22 @@ describe('GET /workflows?includeFolders=true', () => {
 });
 
 describe('PATCH /workflows/:workflowId', () => {
+	test('should reject an invalid timezone in settings', async () => {
+		const workflow = await createWorkflow({ settings: { timezone: 'Europe/Berlin' } }, owner);
+
+		const response = await authOwnerAgent.patch(`/workflows/${workflow.id}`).send({
+			versionId: workflow.versionId,
+			settings: { timezone: 'Not/AZone' },
+		});
+
+		expect(response.statusCode).toBe(400);
+
+		const updatedWorkflow = await Container.get(WorkflowRepository).findOneByOrFail({
+			id: workflow.id,
+		});
+		expect(updatedWorkflow.settings?.timezone).toBe('Europe/Berlin');
+	});
+
 	test('should create workflow history version when licensed', async () => {
 		license.enable('feat:workflowHistory');
 		const workflow = await createWorkflow({}, owner);

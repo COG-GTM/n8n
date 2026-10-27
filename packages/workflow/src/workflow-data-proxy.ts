@@ -4,12 +4,12 @@
 
 import { ApplicationError } from '@n8n/errors';
 import * as jmespath from 'jmespath';
-import { DateTime, Duration, Interval, Settings } from 'luxon';
+import { DateTime, Duration, Interval } from 'luxon';
 
 import { augmentArray, augmentObject } from './augment-object';
 import { AGENT_LANGCHAIN_NODE_TYPE, SCRIPTING_NODE_TYPES } from './constants';
 import { ExpressionError, type ExpressionErrorOptions } from './errors/expression.error';
-import { getGlobalState } from './global-state';
+import { resolveTimezone } from './global-state';
 import { NodeConnectionTypes } from './interfaces';
 import type {
 	IDataObject,
@@ -85,8 +85,7 @@ export class WorkflowDataProxy {
 			? augmentArray(connectionInputData)
 			: connectionInputData;
 
-		this.timezone = workflow.settings?.timezone ?? getGlobalState().defaultTimezone;
-		Settings.defaultZone = this.timezone;
+		this.timezone = resolveTimezone(workflow.settings?.timezone);
 	}
 
 	/**
@@ -1470,8 +1469,10 @@ export class WorkflowDataProxy {
 			$mode: this.mode,
 			$workflow: this.workflowGetter(),
 			$itemIndex: this.itemIndex,
-			$now: DateTime.now(),
-			$today: DateTime.now().set({ hour: 0, minute: 0, second: 0, millisecond: 0 }),
+			$now: DateTime.now().setZone(this.timezone),
+			$today: DateTime.now()
+				.setZone(this.timezone)
+				.set({ hour: 0, minute: 0, second: 0, millisecond: 0 }),
 			$jmesPath: jmespathWrapper,
 
 			DateTime,

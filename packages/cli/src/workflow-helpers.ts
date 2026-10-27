@@ -6,11 +6,14 @@ import type {
 	IRun,
 	ITaskData,
 	IWorkflowBase,
+	IWorkflowSettings,
 	RelatedExecution,
 } from 'n8n-workflow';
+import { isValidTimezone } from 'n8n-workflow';
 import { v4 as uuid } from 'uuid';
 
 import { VariablesService } from '@/environments.ee/variables/variables.service.ee';
+import { BadRequestError } from '@/errors/response-errors/bad-request.error';
 import { OwnershipService } from './services/ownership.service';
 
 /**
@@ -214,4 +217,23 @@ export function shouldRestartParentExecution(
 		return true; // Preserve existing behavior for executions started before the flag was introduced for backward compatibility.
 	}
 	return parentExecution.shouldResume;
+}
+
+export function isValidWorkflowTimezoneSetting(settings?: IWorkflowSettings | null) {
+	const timezone: unknown = settings?.timezone;
+	return (
+		timezone === undefined ||
+		timezone === null ||
+		timezone === 'DEFAULT' ||
+		isValidTimezone(timezone)
+	);
+}
+
+/**
+ * Rejects workflow settings whose `timezone` is not `DEFAULT` or a valid IANA zone.
+ */
+export function validateWorkflowTimezoneSetting(settings?: IWorkflowSettings | null) {
+	if (!isValidWorkflowTimezoneSetting(settings)) {
+		throw new BadRequestError('Workflow settings contain an invalid timezone');
+	}
 }
