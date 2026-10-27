@@ -2,7 +2,7 @@ import { Logger } from '@n8n/backend-common';
 import { mockInstance } from '@n8n/backend-test-utils';
 import type express from 'express';
 import { mock, type MockProxy } from 'jest-mock-extended';
-import { BinaryDataService, ErrorReporter } from 'n8n-core';
+import { BinaryDataScopeError, BinaryDataService, ErrorReporter } from 'n8n-core';
 import type {
 	Workflow,
 	INode,
@@ -185,7 +185,7 @@ describe('setupResponseNodePromise', () => {
 			res,
 			responseCallback,
 			workflowStartNode,
-			executionId,
+			() => executionId,
 			workflow,
 		);
 
@@ -204,6 +204,10 @@ describe('setupResponseNodePromise', () => {
 		expect(res.end).toHaveBeenCalled();
 	});
 
+	const uuid = '0f9f6a7e-1c2b-4d3e-9f80-123456789abc';
+	const binaryDataId = (wfId: string, execId: string) =>
+		`filesystem-v2:workflows/${wfId}/executions/${execId}/binary_data/${uuid}`;
+
 	test('should handle binary data with ID', async () => {
 		const mockStream = mock<Readable>();
 		binaryDataService.getAsStream.mockResolvedValue(mockStream);
@@ -213,22 +217,70 @@ describe('setupResponseNodePromise', () => {
 			res,
 			responseCallback,
 			workflowStartNode,
-			executionId,
+			() => executionId,
 			workflow,
 		);
 
+		const id = binaryDataId(workflowId, executionId);
 		responsePromise.resolve({
-			body: { binaryData: { id: 'binary-123' } },
+			body: { binaryData: { id } },
 			headers: { 'content-type': 'image/jpeg' },
 			statusCode: 200,
 		});
 		await new Promise(process.nextTick);
 
-		expect(binaryDataService.getAsStream).toHaveBeenCalledWith('binary-123');
+		expect(binaryDataService.getAsStream).toHaveBeenCalledWith(id);
 		expect(res.header).toHaveBeenCalledWith({ 'content-type': 'image/jpeg' });
 		expect(mockStream.pipe).toHaveBeenCalledWith(res, { end: false });
 		expect(finished).toHaveBeenCalledWith(mockStream);
 		expect(responseCallback).toHaveBeenCalledWith(null, { noWebhookResponse: true });
+	});
+
+	test('should reject binary data when the execution id is unknown', async () => {
+		setupResponseNodePromise(
+			responsePromise,
+			res,
+			responseCallback,
+			workflowStartNode,
+			() => undefined,
+			workflow,
+		);
+
+		responsePromise.resolve({
+			body: { binaryData: { id: binaryDataId(workflowId, 'other-execution-id') } },
+			headers: { 'content-type': 'application/pdf' },
+			statusCode: 200,
+		});
+		await new Promise(process.nextTick);
+
+		expect(binaryDataService.getAsStream).not.toHaveBeenCalled();
+		expect(responseCallback).toHaveBeenCalledWith(expect.any(BinaryDataScopeError), {});
+	});
+
+	test.each([
+		['another workflow', binaryDataId('other-workflow-id', executionId)],
+		['another execution', binaryDataId(workflowId, 'other-execution-id')],
+		['an arbitrary storage key', 's3:some/other/key'],
+	])('should reject binary data that belongs to %s', async (_, id) => {
+		setupResponseNodePromise(
+			responsePromise,
+			res,
+			responseCallback,
+			workflowStartNode,
+			() => executionId,
+			workflow,
+		);
+
+		responsePromise.resolve({
+			body: { binaryData: { id } },
+			headers: { 'content-type': 'application/pdf' },
+			statusCode: 200,
+		});
+		await new Promise(process.nextTick);
+
+		expect(binaryDataService.getAsStream).not.toHaveBeenCalled();
+		expect(res.header).not.toHaveBeenCalled();
+		expect(responseCallback).toHaveBeenCalledWith(expect.any(BinaryDataScopeError), {});
 	});
 
 	test('should handle buffer response', async () => {
@@ -237,7 +289,7 @@ describe('setupResponseNodePromise', () => {
 			res,
 			responseCallback,
 			workflowStartNode,
-			executionId,
+			() => executionId,
 			workflow,
 		);
 
@@ -260,7 +312,7 @@ describe('setupResponseNodePromise', () => {
 			res,
 			responseCallback,
 			workflowStartNode,
-			executionId,
+			() => executionId,
 			workflow,
 		);
 

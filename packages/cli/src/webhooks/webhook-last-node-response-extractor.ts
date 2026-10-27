@@ -1,6 +1,6 @@
 import { Container } from '@n8n/di';
 import get from 'lodash/get';
-import { BinaryDataService } from 'n8n-core';
+import { BinaryDataService, isBinaryDataIdInScope } from 'n8n-core';
 import type { INodeExecutionData, ITaskData, Result, WebhookResponseData } from 'n8n-workflow';
 import { BINARY_ENCODING, createResultError, createResultOk, OperationalError } from 'n8n-workflow';
 import type { Readable } from 'node:stream';
@@ -33,6 +33,7 @@ export async function extractWebhookLastNodeResponse(
 	responseDataType: WebhookResponseData | undefined,
 	lastNodeTaskData: ITaskData,
 	checkAllMainOutputs: boolean = false,
+	executionId?: string,
 ): Promise<Result<StaticResponse | StreamResponse, OperationalError>> {
 	if (responseDataType === 'firstEntryJson') {
 		return extractFirstEntryJsonFromTaskData(context, lastNodeTaskData, checkAllMainOutputs);
@@ -43,6 +44,7 @@ export async function extractWebhookLastNodeResponse(
 			context,
 			lastNodeTaskData,
 			checkAllMainOutputs,
+			executionId,
 		);
 	}
 
@@ -115,6 +117,7 @@ async function extractFirstEntryBinaryFromTaskData(
 	context: WebhookExecutionContext,
 	lastNodeTaskData: ITaskData,
 	checkAllMainOutputs: boolean = false,
+	executionId?: string,
 ): Promise<Result<StaticResponse | StreamResponse, OperationalError>> {
 	const mainOutputs = lastNodeTaskData.data?.main;
 	let lastNodeFirstJsonItem: INodeExecutionData | undefined;
@@ -166,6 +169,12 @@ async function extractFirstEntryBinaryFromTaskData(
 	// In binary data's case, the mime type takes precedence over any manually
 	// set content type header
 	if (binaryData.id) {
+		if (!isBinaryDataIdInScope(binaryData.id, { workflowId: context.workflow.id, executionId })) {
+			return createResultError(
+				new OperationalError('The binary data to return does not belong to this execution'),
+			);
+		}
+
 		const stream = await Container.get(BinaryDataService).getAsStream(binaryData.id);
 		return createResultOk({
 			type: 'stream',
