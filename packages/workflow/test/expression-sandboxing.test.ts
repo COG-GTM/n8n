@@ -3,6 +3,7 @@ import { Tournament } from '@n8n/tournament';
 import {
 	DollarSignValidator,
 	PrototypeSanitizer,
+	ThisSanitizer,
 	sanitizer,
 	DOLLAR_SIGN_ERROR,
 } from '../src/expression-sandboxing';
@@ -14,7 +15,7 @@ const tournament = new Tournament(
 	undefined,
 	undefined,
 	{
-		before: [],
+		before: [ThisSanitizer],
 		after: [PrototypeSanitizer, DollarSignValidator],
 	},
 );
@@ -225,4 +226,63 @@ describe('PrototypeSanitizer', () => {
 			}).toThrowError(errorRegex);
 		});
 	});
+});
+
+describe('ThisSanitizer', () => {
+	it('should not expose the global object via IIFE `this`', () => {
+		expect(tournament.execute('{{ (function () { return this.process })() }}', {})).toEqual({});
+	});
+
+	it('should not expose the global object via callback `this`', () => {
+		expect(
+			tournament.execute('{{ [1].map(function () { return this.process.env })[0] }}', {}),
+		).toBeUndefined();
+	});
+
+	it('should not expose the global object via nested function declarations', () => {
+		expect(
+			tournament.execute(
+				'{{ (() => { function f() { return this.process } return f() })() }}',
+				{},
+			),
+		).toEqual({});
+	});
+
+	it('should not expose the global object via detached methods or call(undefined)', () => {
+		expect(
+			tournament.execute(
+				'{{ (() => { const o = { m() { return this.process } }; const m = o.m; return m() })() }}',
+				{},
+			),
+		).toEqual({});
+		expect(
+			tournament.execute('{{ (function () { return this.process }).call(undefined) }}', {}),
+		).toEqual({});
+	});
+
+	it('should not allow running commands through `this.process`', () => {
+		expect(() =>
+			tournament.execute(
+				"{{ (function () { return this.process.mainModule.require('child_process').execSync('id').toString() })() }}",
+				{},
+			),
+		).toThrow();
+	});
+
+	it('should keep regular method receivers working', () => {
+		expect(tournament.execute('{{ ({ a: 2, get() { return this.a } }).get() }}', {})).toBe(2);
+		expect(
+			tournament.execute('{{ [1, 2].map(function (x) { return x * this.k }, { k: 3 }) }}', {}),
+		).toEqual([3, 6]);
+	});
+});
+
+describe('Process internals', () => {
+	it.each(['mainModule', '_load', '_linkedBinding', 'dlopen'])(
+		'should not allow access to %s',
+		(property) => {
+			expect(() => tournament.execute(`{{ ({}).${property} }}`, {})).toThrowError(errorRegex);
+			expect(() => tournament.execute(`{{ ({})["${property}"] }}`, {})).toThrowError(errorRegex);
+		},
+	);
 });
