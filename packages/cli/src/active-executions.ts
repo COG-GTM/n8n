@@ -59,10 +59,10 @@ export class ActiveExecutions {
 	}
 
 	/**
-	 * Atomically mark a `new` or `waiting` execution as `running`, so that only
-	 * one caller can resume it. Use this before responding to the caller of a
-	 * resume request; a later `add()` with the same `executionData` then skips
-	 * its own claim.
+	 * Wait for concurrency capacity, then atomically mark a `new` or `waiting`
+	 * execution as `running`, so that only one caller can resume it. Use this
+	 * before responding to the caller of a resume request; a later `add()` with
+	 * the same `executionData` then reuses the claim and its concurrency slot.
 	 *
 	 * @returns `false` if the execution was already claimed by another caller.
 	 */
@@ -70,20 +70,31 @@ export class ActiveExecutions {
 		executionId: string,
 		executionData: IWorkflowExecutionDataProcess,
 	): Promise<boolean> {
+		const mode = executionData.executionMode;
+		await this.concurrencyControl.throttle({ mode, executionId });
+
 		const claimed = await this.executionRepository.updateExistingExecution(
 			executionId,
 			{ status: 'running' },
 			{ requireStatus: RESUMABLE_EXECUTION_STATUSES },
 		);
-		if (claimed) this.claimedForResume.set(executionId, executionData);
-		return claimed;
+		if (!claimed) {
+			this.concurrencyControl.release({ mode });
+			return false;
+		}
+
+		this.claimedForResume.set(executionId, executionData);
+		return true;
 	}
 
 	/**
 	 * Undo a `claimForResume` whose execution was never added.
 	 */
 	async releaseResumeClaim(executionId: string) {
-		if (!this.claimedForResume.delete(executionId)) return;
+		const executionData = this.claimedForResume.get(executionId);
+		if (!executionData) return;
+		this.claimedForResume.delete(executionId);
+		this.concurrencyControl.release({ mode: executionData.executionMode });
 		await this.executionRepository.updateExistingExecution(
 			executionId,
 			{ status: 'waiting' },
@@ -127,7 +138,14 @@ export class ActiveExecutions {
 		} else {
 			// Is an existing execution we want to finish so update in DB
 
-			await this.concurrencyControl.throttle({ mode, executionId });
+			// Executions claimed via `claimForResume` already hold a concurrency slot
+			// and are `running`, unless they were canceled since.
+			const alreadyClaimed = this.claimedForResume.get(executionId) === executionData;
+			if (alreadyClaimed) {
+				this.claimedForResume.delete(executionId);
+			} else {
+				await this.concurrencyControl.throttle({ mode, executionId });
+			}
 
 			const execution: Pick<IExecutionDb, 'id' | 'data' | 'waitTill' | 'status'> = {
 				id: executionId,
@@ -137,15 +155,12 @@ export class ActiveExecutions {
 				// this is resuming, so keep `startedAt` as it was
 			};
 
-			// Atomically claim the execution (unless already claimed via `claimForResume`)
-			// so that concurrent resume attempts, e.g. duplicate webhook calls or the
-			// wait tracker, cannot resume it twice.
-			const alreadyClaimed = this.claimedForResume.get(executionId) === executionData;
-			if (alreadyClaimed) this.claimedForResume.delete(executionId);
+			// Atomically claim the execution so that concurrent resume attempts,
+			// e.g. duplicate webhook calls or the wait tracker, cannot resume it twice.
 			const claimed = await this.executionRepository.updateExistingExecution(
 				executionId,
 				execution,
-				alreadyClaimed ? {} : { requireStatus: RESUMABLE_EXECUTION_STATUSES },
+				{ requireStatus: alreadyClaimed ? ['running'] : RESUMABLE_EXECUTION_STATUSES },
 			);
 
 			if (!claimed) {

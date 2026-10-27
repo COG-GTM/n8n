@@ -166,6 +166,11 @@ describe('ActiveExecutions', () => {
 				activeExecutions.claimForResume(FAKE_SECOND_EXECUTION_ID, executionData),
 			).resolves.toBe(true);
 
+			expect(concurrencyControl.throttle).toHaveBeenCalledWith({
+				mode: executionData.executionMode,
+				executionId: FAKE_SECOND_EXECUTION_ID,
+			});
+			expect(concurrencyControl.release).not.toHaveBeenCalled();
 			expect(executionRepository.updateExistingExecution).toHaveBeenCalledWith(
 				FAKE_SECOND_EXECUTION_ID,
 				{ status: 'running' },
@@ -179,20 +184,39 @@ describe('ActiveExecutions', () => {
 			await expect(
 				activeExecutions.claimForResume(FAKE_SECOND_EXECUTION_ID, executionData),
 			).resolves.toBe(false);
+			expect(concurrencyControl.release).toHaveBeenCalledWith({
+				mode: executionData.executionMode,
+			});
 		});
 
-		test('Should not claim again when adding the claimed execution data', async () => {
+		test('Should reuse the claim and its concurrency slot when adding the claimed execution data', async () => {
 			await activeExecutions.claimForResume(FAKE_SECOND_EXECUTION_ID, executionData);
 			executionRepository.updateExistingExecution.mockClear();
+			concurrencyControl.throttle.mockClear();
 
 			await activeExecutions.add(executionData, FAKE_SECOND_EXECUTION_ID);
 
+			expect(concurrencyControl.throttle).not.toHaveBeenCalled();
 			expect(executionRepository.updateExistingExecution).toHaveBeenCalledWith(
 				FAKE_SECOND_EXECUTION_ID,
 				expect.objectContaining({ status: 'running', waitTill: null }),
-				{},
+				{ requireStatus: ['running'] },
 			);
 			expect(activeExecutions.has(FAKE_SECOND_EXECUTION_ID)).toBe(true);
+		});
+
+		test('Should not start a claimed execution that was canceled before being added', async () => {
+			await activeExecutions.claimForResume(FAKE_SECOND_EXECUTION_ID, executionData);
+			executionRepository.updateExistingExecution.mockResolvedValueOnce(false);
+
+			await expect(activeExecutions.add(executionData, FAKE_SECOND_EXECUTION_ID)).rejects.toThrow(
+				ExecutionAlreadyResumedError,
+			);
+
+			expect(activeExecutions.has(FAKE_SECOND_EXECUTION_ID)).toBe(false);
+			expect(concurrencyControl.release).toHaveBeenCalledWith({
+				mode: executionData.executionMode,
+			});
 		});
 
 		test('Should still claim when another caller adds a claimed execution', async () => {
@@ -216,6 +240,9 @@ describe('ActiveExecutions', () => {
 
 			await activeExecutions.releaseResumeClaim(FAKE_SECOND_EXECUTION_ID);
 
+			expect(concurrencyControl.release).toHaveBeenCalledWith({
+				mode: executionData.executionMode,
+			});
 			expect(executionRepository.updateExistingExecution).toHaveBeenCalledWith(
 				FAKE_SECOND_EXECUTION_ID,
 				{ status: 'waiting' },
