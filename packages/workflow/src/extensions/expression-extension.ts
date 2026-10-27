@@ -510,7 +510,9 @@ function findExtendedFunction(input: unknown, functionName: string): FoundFuncti
 			// eslint-disable-next-line @typescript-eslint/no-restricted-types
 			const nativeFunction: Function = inputAny[functionName];
 			if (FUNCTION_CONSTRUCTORS.has(nativeFunction)) {
-				throw new ExpressionExtensionError(`Cannot access "${functionName}" due to security concerns`);
+				throw new ExpressionExtensionError(
+					`Cannot access "${functionName}" due to security concerns`,
+				);
 			}
 			return { type: 'native', function: nativeFunction };
 		}

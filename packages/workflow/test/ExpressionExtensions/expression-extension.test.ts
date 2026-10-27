@@ -298,7 +298,9 @@ describe('Expression Parser', () => {
 		test('does not resolve inherited Object.prototype members of extension maps', () => {
 			expect(() => extend('x', 'hasOwnProperty', [])).not.toThrow();
 			expect(extend('x', 'hasOwnProperty', ['length'])).toBe(true);
-			expect(() => extend(undefined, '__defineGetter__', [])).toThrowError(ExpressionExtensionError);
+			expect(() => extend(undefined, '__defineGetter__', [])).toThrowError(
+				ExpressionExtensionError,
+			);
 		});
 
 		test('still allows native and extended methods', () => {
