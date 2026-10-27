@@ -54,6 +54,7 @@ import type {
 
 import { ActiveExecutions } from '@/active-executions';
 import { MCP_TRIGGER_NODE_TYPE } from '@/constants';
+import { ExecutionAlreadyResumedError } from '@/errors/execution-already-resumed.error';
 import { InternalServerError } from '@/errors/response-errors/internal-server.error';
 import { NotFoundError } from '@/errors/response-errors/not-found.error';
 import { UnprocessableRequestError } from '@/errors/response-errors/unprocessable.error';
@@ -762,7 +763,7 @@ export async function executeWebhook(
 		return executionId;
 	} catch (e) {
 		const error =
-			e instanceof UnprocessableRequestError
+			e instanceof UnprocessableRequestError || e instanceof ExecutionAlreadyResumedError
 				? e
 				: new OperationalError('There was a problem executing the workflow', {
 						cause: e,

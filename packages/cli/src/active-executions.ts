@@ -20,12 +20,16 @@ import {
 import { strict as assert } from 'node:assert';
 import type PCancelable from 'p-cancelable';
 
+import { ExecutionAlreadyResumedError } from '@/errors/execution-already-resumed.error';
 import { ExecutionNotFoundError } from '@/errors/execution-not-found-error';
 import type { IExecutingWorkflowData, IExecutionsCurrentSummary } from '@/interfaces';
 import { isWorkflowIdValid } from '@/utils';
 
 import { ConcurrencyControlService } from './concurrency/concurrency-control.service';
 import { EventService } from './events/event.service';
+
+/** Statuses an existing execution may be in when it is (re)started. */
+const RESUMABLE_EXECUTION_STATUSES: ExecutionStatus[] = ['new', 'waiting'];
 
 @Service()
 export class ActiveExecutions {
@@ -94,7 +98,18 @@ export class ActiveExecutions {
 				// this is resuming, so keep `startedAt` as it was
 			};
 
-			await this.executionRepository.updateExistingExecution(executionId, execution);
+			// Atomically claim the execution so that concurrent resume attempts
+			// (e.g. duplicate webhook calls or the wait tracker) cannot resume it twice.
+			const claimed = await this.executionRepository.updateExistingExecution(
+				executionId,
+				execution,
+				{ requireStatus: RESUMABLE_EXECUTION_STATUSES },
+			);
+
+			if (!claimed) {
+				this.concurrencyControl.release({ mode });
+				throw new ExecutionAlreadyResumedError(executionId);
+			}
 		}
 
 		const resumingExecution = this.activeExecutions[executionId];

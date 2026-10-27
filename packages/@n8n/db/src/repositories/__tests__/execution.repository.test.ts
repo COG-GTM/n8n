@@ -1,10 +1,12 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
+import { GlobalConfig } from '@n8n/config';
 import { Container } from '@n8n/di';
+import type { EntityManager } from '@n8n/typeorm';
 import { In, LessThan, And, Not } from '@n8n/typeorm';
 
 import type { IExecutionResponse } from 'entities/types-db';
 
-import { ExecutionEntity } from '../../entities';
+import { ExecutionData, ExecutionEntity } from '../../entities';
 import { mockEntityManager } from '../../utils/test-utils/mock-entity-manager';
 import { ExecutionRepository } from '../execution.repository';
 
@@ -366,6 +368,77 @@ describe('ExecutionRepository', () => {
 				.map((_, i) => i.toString());
 			await executionRepository.markAsCrashed(manyExecutionsToMarkAsCrashed);
 			expect(entityManager.update).toBeCalledTimes(2);
+		});
+	});
+
+	describe('updateExistingExecution', () => {
+		const globalConfig = Container.get(GlobalConfig);
+		const originalDbType = globalConfig.database.type;
+
+		beforeEach(() => {
+			globalConfig.database.type = 'postgresdb';
+			entityManager.transaction.mockImplementation(
+				async (cb: (tx: EntityManager) => Promise<unknown>) => await cb(entityManager),
+			);
+		});
+
+		afterAll(() => {
+			globalConfig.database.type = originalDbType;
+		});
+
+		test('should update unconditionally when no status is required', async () => {
+			entityManager.update.mockResolvedValue({ affected: 1, raw: [], generatedMaps: [] });
+
+			const result = await executionRepository.updateExistingExecution('123', {
+				status: 'running',
+			});
+
+			expect(result).toBe(true);
+			expect(entityManager.update).toHaveBeenCalledWith(
+				ExecutionEntity,
+				{ id: '123' },
+				{ status: 'running' },
+			);
+		});
+
+		test('should only update when the execution is in a required status', async () => {
+			entityManager.update.mockResolvedValue({ affected: 1, raw: [], generatedMaps: [] });
+
+			const result = await executionRepository.updateExistingExecution(
+				'123',
+				{ status: 'running', waitTill: null, data: { resultData: { runData: {} } } },
+				{ requireStatus: ['new', 'waiting'] },
+			);
+
+			expect(result).toBe(true);
+			expect(entityManager.update).toHaveBeenCalledWith(
+				ExecutionEntity,
+				{ id: '123', status: In(['new', 'waiting']) },
+				{ status: 'running', waitTill: null },
+			);
+			expect(entityManager.update).toHaveBeenCalledWith(
+				ExecutionData,
+				{ executionId: '123' },
+				expect.objectContaining({ data: expect.any(String) }),
+			);
+		});
+
+		test('should not update data when the execution was already claimed', async () => {
+			entityManager.update.mockResolvedValue({ affected: 0, raw: [], generatedMaps: [] });
+
+			const result = await executionRepository.updateExistingExecution(
+				'123',
+				{ status: 'running', waitTill: null, data: { resultData: { runData: {} } } },
+				{ requireStatus: ['new', 'waiting'] },
+			);
+
+			expect(result).toBe(false);
+			expect(entityManager.update).toHaveBeenCalledTimes(1);
+			expect(entityManager.update).not.toHaveBeenCalledWith(
+				ExecutionData,
+				expect.anything(),
+				expect.anything(),
+			);
 		});
 	});
 

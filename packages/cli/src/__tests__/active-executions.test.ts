@@ -5,6 +5,7 @@ import type { ExecutionRepository } from '@n8n/db';
 import type { Response } from 'express';
 import { captor, mock } from 'jest-mock-extended';
 import type {
+	ExecutionStatus,
 	IDeferredPromise,
 	IExecuteResponsePromiseData,
 	IRun,
@@ -22,6 +23,7 @@ import { v4 as uuid } from 'uuid';
 
 import { ActiveExecutions } from '@/active-executions';
 import { ConcurrencyControlService } from '@/concurrency/concurrency-control.service';
+import { ExecutionAlreadyResumedError } from '@/errors/execution-already-resumed.error';
 
 jest.mock('n8n-workflow', () => ({
 	...jest.requireActual('n8n-workflow'),
@@ -84,6 +86,7 @@ describe('ActiveExecutions', () => {
 		);
 
 		executionRepository.createNewExecution.mockResolvedValue(FAKE_EXECUTION_ID);
+		executionRepository.updateExistingExecution.mockResolvedValue(true);
 
 		workflowExecution = new PCancelable<IRun>((resolve) => resolve());
 		workflowExecution.cancel = jest.fn();
@@ -114,6 +117,47 @@ describe('ActiveExecutions', () => {
 		expect(activeExecutions.getActiveExecutions()).toHaveLength(1);
 		expect(executionRepository.createNewExecution).toHaveBeenCalledTimes(0);
 		expect(executionRepository.updateExistingExecution).toHaveBeenCalledTimes(1);
+		expect(executionRepository.updateExistingExecution).toHaveBeenCalledWith(
+			FAKE_SECOND_EXECUTION_ID,
+			expect.objectContaining({ status: 'running', waitTill: null }),
+			{ requireStatus: ['new', 'waiting'] },
+		);
+	});
+
+	test('Should reject resuming an execution that was already claimed', async () => {
+		executionRepository.updateExistingExecution.mockResolvedValueOnce(false);
+
+		await expect(activeExecutions.add(executionData, FAKE_SECOND_EXECUTION_ID)).rejects.toThrow(
+			ExecutionAlreadyResumedError,
+		);
+
+		expect(activeExecutions.has(FAKE_SECOND_EXECUTION_ID)).toBe(false);
+		expect(activeExecutions.getActiveExecutions()).toHaveLength(0);
+		expect(concurrencyControl.release).toHaveBeenCalledWith({ mode: executionData.executionMode });
+	});
+
+	test('Should resume an execution only once when resumed concurrently', async () => {
+		// Simulates the DB's conditional `UPDATE ... WHERE status IN (...)`
+		let status: ExecutionStatus = 'waiting';
+		executionRepository.updateExistingExecution.mockImplementation(
+			async (_id, execution, { requireStatus } = {}) => {
+				await new Promise((resolve) => setImmediate(resolve));
+				if (requireStatus && !requireStatus.includes(status)) return false;
+				status = execution.status ?? status;
+				return true;
+			},
+		);
+
+		const results = await Promise.allSettled([
+			activeExecutions.add(executionData, FAKE_SECOND_EXECUTION_ID),
+			activeExecutions.add(executionData, FAKE_SECOND_EXECUTION_ID),
+		]);
+
+		expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+		const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+		expect(rejected).toHaveLength(1);
+		expect(rejected[0].reason).toBeInstanceOf(ExecutionAlreadyResumedError);
+		expect(activeExecutions.getActiveExecutions()).toHaveLength(1);
 	});
 
 	describe('attachWorkflowExecution', () => {
