@@ -462,15 +462,19 @@ const FUNCTION_CONSTRUCTORS = new Set<Function>([
 	Object.getPrototypeOf(async function* () {}).constructor,
 ]);
 
+function throwUnsafePropertyError(): never {
+	throw new ExpressionExtensionError('Cannot access unsafe property', {
+		description: 'Accessing this property is not allowed due to security concerns',
+	});
+}
+
 function assertSafeFunctionName(functionName: unknown): asserts functionName is string {
 	if (
 		typeof functionName !== 'string' ||
 		!isSafeObjectProperty(functionName) ||
 		functionName.startsWith('__')
 	) {
-		throw new ExpressionExtensionError('Cannot access unsafe property', {
-			description: 'Accessing this property is not allowed due to security concerns',
-		});
+		throwUnsafePropertyError();
 	}
 }
 
@@ -506,12 +510,10 @@ function findExtendedFunction(input: unknown, functionName: string): FoundFuncti
 		// This is likely a builtin we're implementing for another type
 		// (e.g. toLocaleString). We'll return that instead
 		if (inputAny && functionName && typeof inputAny[functionName] === 'function') {
-			// eslint-disable-next-line @typescript-eslint/no-restricted-types
+			// eslint-disable-next-line @typescript-eslint/no-restricted-types, @typescript-eslint/no-unsafe-assignment
 			const nativeFunction: Function = inputAny[functionName];
 			if (FUNCTION_CONSTRUCTORS.has(nativeFunction)) {
-				throw new ExpressionExtensionError('Cannot access unsafe property', {
-					description: 'Accessing this property is not allowed due to security concerns',
-				});
+				throwUnsafePropertyError();
 			}
 			return { type: 'native', function: nativeFunction };
 		}
