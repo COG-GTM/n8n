@@ -37,6 +37,7 @@ import type {
 	NodeConnectionType,
 } from './interfaces';
 import { validateFilterParameter } from './node-parameters/filter-parameter';
+import { getUnsafeRegexReason } from './node-parameters/regex-safety';
 import {
 	isFilterValue,
 	isINodePropertyOptionsList,
@@ -328,6 +329,7 @@ const checkConditions = (
 					return (propertyValue as string).endsWith(targetValue);
 				}
 				if (key === 'regex') {
+					if (getUnsafeRegexReason(String(targetValue)) !== undefined) return false;
 					return new RegExp(targetValue as string).test(propertyValue as string);
 				}
 				if (key === 'exists') {

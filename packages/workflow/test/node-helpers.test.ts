@@ -4866,6 +4866,38 @@ describe('NodeHelpers', () => {
 				},
 				false,
 			],
+			[
+				'Should return true if a safe regex _cnd condition matches',
+				{
+					...defaultTestInput,
+					nodeValues: { resource: 'arn:aws:sns:us-east-1:123:topic' },
+					parameter: {
+						...defaultTestInput.parameter,
+						displayOptions: {
+							show: {
+								resource: [{ _cnd: { regex: '^arn:aws:sns:[0-9a-z-]+:[0-9]+:[\\w-]+$' } }],
+							},
+						},
+					},
+				},
+				true,
+			],
+			[
+				'Should return false without evaluating an unsafe regex _cnd condition',
+				{
+					...defaultTestInput,
+					nodeValues: { resource: 'a'.repeat(40) + '!' },
+					parameter: {
+						...defaultTestInput.parameter,
+						displayOptions: {
+							show: {
+								resource: [{ _cnd: { regex: '^(a+)+$' } }],
+							},
+						},
+					},
+				},
+				false,
+			],
 		];
 
 		for (const [description, input, expected] of tests) {
