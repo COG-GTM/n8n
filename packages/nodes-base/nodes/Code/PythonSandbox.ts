@@ -1,4 +1,9 @@
-import { ApplicationError, type IExecuteFunctions, type INodeExecutionData } from 'n8n-workflow';
+import {
+	ApplicationError,
+	isEnvAccessBlockedByConfig,
+	type IExecuteFunctions,
+	type INodeExecutionData,
+} from 'n8n-workflow';
 import type { PyDict } from 'pyodide/ffi';
 
 import { LoadPyodide } from './Pyodide';
@@ -10,8 +15,6 @@ type PythonSandboxContext = {
 };
 
 type PyodideError = Error & { type: string };
-
-const envAccessBlocked = process.env.N8N_BLOCK_ENV_ACCESS_IN_NODE === 'true';
 
 export class PythonSandbox extends Sandbox {
 	private readonly context: PythonSandboxContext;
@@ -65,7 +68,7 @@ export class PythonSandbox extends Sandbox {
 			const dict = pyodide.globals.get('dict');
 			const globalsDict: PyDict = dict();
 			for (const key of Object.keys(this.context)) {
-				if ((key === '_env' && envAccessBlocked) || key === '_node') continue;
+				if ((key === '_env' && isEnvAccessBlockedByConfig()) || key === '_node') continue;
 				const value = this.context[key];
 				globalsDict.set(key, value);
 			}

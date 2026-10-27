@@ -202,6 +202,50 @@ describe('DataRequestResponseStripper', () => {
 				isProcessAvailable: true,
 			});
 		});
+		it('should strip n8n secrets from the env sent to the task runner', () => {
+			const result = new DataRequestResponseStripper(
+				{
+					...taskData,
+					envProviderState: {
+						env: {
+							N8N_ENCRYPTION_KEY: 'encryption-key',
+							DB_POSTGRESDB_PASSWORD: 'db-password',
+							N8N_RUNNERS_AUTH_TOKEN: 'runner-token',
+							MY_API_URL: 'https://example.com',
+						},
+						isEnvAccessBlocked: false,
+						isProcessAvailable: true,
+					},
+				},
+				allDataParam,
+			).strip();
+
+			expect(result.envProviderState).toStrictEqual({
+				env: { MY_API_URL: 'https://example.com' },
+				isEnvAccessBlocked: false,
+				isProcessAvailable: true,
+			});
+		});
+
+		it('should not send any env vars when env access is blocked', () => {
+			const result = new DataRequestResponseStripper(
+				{
+					...taskData,
+					envProviderState: {
+						env: { MY_API_URL: 'https://example.com' },
+						isEnvAccessBlocked: true,
+						isProcessAvailable: true,
+					},
+				},
+				allDataParam,
+			).strip();
+
+			expect(result.envProviderState).toStrictEqual({
+				env: {},
+				isEnvAccessBlocked: true,
+				isProcessAvailable: true,
+			});
+		});
 	});
 
 	describe('input data', () => {

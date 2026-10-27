@@ -210,32 +210,6 @@ describe('DeprecationService', () => {
 		});
 	});
 
-	describe('N8N_BLOCK_ENV_ACCESS_IN_NODE', () => {
-		beforeEach(() => {
-			process.env = {
-				N8N_RUNNERS_ENABLED: 'true',
-				N8N_GIT_NODE_DISABLE_BARE_REPOS: 'false',
-			};
-
-			jest.resetAllMocks();
-		});
-
-		test('should warn when N8N_BLOCK_ENV_ACCESS_IN_NODE is not set', () => {
-			delete process.env.N8N_BLOCK_ENV_ACCESS_IN_NODE;
-			deprecationService.warn();
-			expect(logger.warn).toHaveBeenCalled();
-		});
-
-		test.each(['false', 'true'])(
-			'should not warn when N8N_BLOCK_ENV_ACCESS_IN_NODE is %s',
-			(value) => {
-				process.env.N8N_BLOCK_ENV_ACCESS_IN_NODE = value;
-				deprecationService.warn();
-				expect(logger.warn).not.toHaveBeenCalled();
-			},
-		);
-	});
-
 	describe('N8N_GIT_NODE_DISABLE_BARE_REPOS', () => {
 		beforeEach(() => {
 			process.env = {

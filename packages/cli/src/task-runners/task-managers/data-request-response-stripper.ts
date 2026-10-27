@@ -1,4 +1,5 @@
 import type { DataRequestResponse, BrokerMessage } from '@n8n/task-runner';
+import { filterSensitiveEnvVars } from 'n8n-workflow';
 import type {
 	EnvProviderState,
 	IPinData,
@@ -69,9 +70,11 @@ export class DataRequestResponseStripper {
 
 	private stripEnvProviderState(envProviderState: EnvProviderState): EnvProviderState {
 		if (this.stripParams.env) {
-			// In case `isEnvAccessBlocked` = true, the provider state has already sanitized
-			// the environment variables and we can return it as is.
-			return envProviderState;
+			return {
+				env: envProviderState.isEnvAccessBlocked ? {} : filterSensitiveEnvVars(envProviderState.env),
+				isEnvAccessBlocked: envProviderState.isEnvAccessBlocked,
+				isProcessAvailable: envProviderState.isProcessAvailable,
+			};
 		}
 
 		return {

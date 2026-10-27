@@ -16,6 +16,7 @@ import type {
 import { Workflow } from '../src/workflow';
 
 process.env.TEST_VARIABLE_1 = 'valueEnvVariable1';
+process.env.N8N_BLOCK_ENV_ACCESS_IN_NODE = 'false';
 
 // eslint-disable-next-line import/order
 import * as Helpers from './helpers';

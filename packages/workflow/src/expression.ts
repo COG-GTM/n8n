@@ -26,6 +26,7 @@ import type {
 } from './interfaces';
 import type { Workflow } from './workflow';
 import { WorkflowDataProxy } from './workflow-data-proxy';
+import { getWorkflowAccessibleEnv } from './workflow-data-proxy-env-provider';
 
 const IS_FRONTEND_IN_DEV_MODE =
 	typeof process === 'object' &&
@@ -281,7 +282,7 @@ export class Expression {
 			typeof process !== 'undefined'
 				? {
 						arch: process.arch,
-						env: process.env.N8N_BLOCK_ENV_ACCESS_IN_NODE === 'true' ? {} : process.env,
+						env: getWorkflowAccessibleEnv(),
 						platform: process.platform,
 						pid: process.pid,
 						ppid: process.ppid,
