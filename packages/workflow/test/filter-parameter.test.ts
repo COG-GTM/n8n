@@ -2,7 +2,11 @@ import merge from 'lodash/merge';
 import { DateTime } from 'luxon';
 
 import type { FilterConditionValue, FilterValue } from '../src/interfaces';
-import { arrayContainsValue, executeFilter } from '../src/node-parameters/filter-parameter';
+import {
+	FilterError,
+	arrayContainsValue,
+	executeFilter,
+} from '../src/node-parameters/filter-parameter';
 
 type DeepPartial<T> = {
 	[P in keyof T]?: T[P] extends object ? DeepPartial<T[P]> : T[P];
@@ -574,6 +578,48 @@ describe('FilterParameter', () => {
 						}),
 					);
 					expect(result).toBe(expected);
+				});
+
+				it.each(['regex', 'notRegex'] as const)(
+					'string:%s rejects a catastrophic-backtracking pattern without running it',
+					(operation) => {
+						const start = Date.now();
+						expect(() =>
+							executeFilter(
+								filterFactory({
+									conditions: [
+										{
+											id: '1',
+											leftValue: 'a'.repeat(40) + '!',
+											rightValue: '^(a+)+$',
+											operator: { operation, type: 'string' },
+										},
+									],
+								}),
+							),
+						).toThrow(FilterError);
+						expect(Date.now() - start).toBeLessThan(100);
+					},
+				);
+
+				it.each([
+					{ name: 'nested quantifier with flags', right: '/^(\\w+\\s?)+$/i' },
+					{ name: 'over-long pattern', right: 'a'.repeat(1001) },
+				])('string:regex rejects unsafe pattern ($name)', ({ right }) => {
+					expect(() =>
+						executeFilter(
+							filterFactory({
+								conditions: [
+									{
+										id: '1',
+										leftValue: 'foo',
+										rightValue: right,
+										operator: { operation: 'regex', type: 'string' },
+									},
+								],
+							}),
+						),
+					).toThrow('Unsafe regex pattern');
 				});
 			});
 

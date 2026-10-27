@@ -12,6 +12,7 @@ import type {
 import * as LoggerProxy from '../logger-proxy';
 import type { Result } from '../result';
 import { validateFieldType } from '../type-validation';
+import { getUnsafeRegexReason } from './regex-safety';
 
 type FilterConditionMetadata = {
 	index: number;
@@ -187,15 +188,18 @@ function parseFilterConditionValues(
 
 function parseRegexPattern(pattern: string): RegExp {
 	const regexMatch = (pattern || '').match(new RegExp('^/(.*?)/([gimusy]*)$'));
-	let regex: RegExp;
+	const source = regexMatch ? regexMatch[1] : (pattern || '').toString();
+	const flags = regexMatch ? regexMatch[2] : undefined;
 
-	if (!regexMatch) {
-		regex = new RegExp((pattern || '').toString());
-	} else {
-		regex = new RegExp(regexMatch[1], regexMatch[2]);
+	const unsafeReason = getUnsafeRegexReason(source);
+	if (unsafeReason) {
+		throw new FilterError(
+			'Unsafe regex pattern',
+			`${unsafeReason}. Simplify the pattern, for example by removing nested repetition such as "(a+)+".`,
+		);
 	}
 
-	return regex;
+	return new RegExp(source, flags);
 }
 
 export function arrayContainsValue(array: unknown[], value: unknown, ignoreCase: boolean): boolean {
