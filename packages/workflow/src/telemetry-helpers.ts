@@ -100,19 +100,36 @@ function areOverlapping(
 	);
 }
 
-const URL_PARTS_REGEX = /(?<protocolPlusDomain>.*?\..*?)(?<pathname>\/.*)/;
+const MAX_MALFORMED_URL_LENGTH = 2048;
 
-export function getDomainBase(raw: string, urlParts = URL_PARTS_REGEX): string {
+/**
+ * Split a URL that `new URL()` rejects into everything before the first `/` that
+ * follows the first `.` and the rest of that line, considering only the first line
+ * that has both. Linear time, so attacker-controlled node parameters cannot stall the process.
+ */
+function splitMalformedUrl(raw: string) {
+	if (typeof raw !== 'string' || raw.length > MAX_MALFORMED_URL_LENGTH) return undefined;
+
+	for (const line of raw.split(/[\n\r\u2028\u2029]/)) {
+		const firstDot = line.indexOf('.');
+		if (firstDot === -1) continue;
+
+		const pathStart = line.indexOf('/', firstDot + 1);
+		if (pathStart === -1) continue;
+
+		return { protocolPlusDomain: line.slice(0, pathStart), pathname: line.slice(pathStart) };
+	}
+
+	return undefined;
+}
+
+export function getDomainBase(raw: string): string {
 	try {
 		const url = new URL(raw);
 
 		return [url.protocol, url.hostname].join('//');
 	} catch {
-		const match = urlParts.exec(raw);
-
-		if (!match?.groups?.protocolPlusDomain) return '';
-
-		return match.groups.protocolPlusDomain;
+		return splitMalformedUrl(raw)?.protocolPlusDomain ?? '';
 	}
 }
 
@@ -134,7 +151,7 @@ function sanitizeRoute(raw: string, check = isSensitive, char = ANONYMIZATION_CH
 /**
  * Return pathname plus query string from URL, anonymizing IDs in route and query params.
  */
-export function getDomainPath(raw: string, urlParts = URL_PARTS_REGEX): string {
+export function getDomainPath(raw: string): string {
 	try {
 		const url = new URL(raw);
 
@@ -142,12 +159,12 @@ export function getDomainPath(raw: string, urlParts = URL_PARTS_REGEX): string {
 
 		return sanitizeRoute(url.pathname);
 	} catch {
-		const match = urlParts.exec(raw);
+		const pathname = splitMalformedUrl(raw)?.pathname;
 
-		if (!match?.groups?.pathname) return '';
+		if (!pathname) return '';
 
 		// discard query string
-		const route = match.groups.pathname.split('?').shift() as string;
+		const route = pathname.split('?')[0];
 
 		return sanitizeRoute(route);
 	}

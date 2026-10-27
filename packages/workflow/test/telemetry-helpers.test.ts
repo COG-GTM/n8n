@@ -96,6 +96,80 @@ describe('getDomainPath should return pathname, excluding query string', () => {
 	});
 });
 
+describe('getDomainBase and getDomainPath with pathological input', () => {
+	const pathological = [
+		'.'.repeat(20000),
+		'a.'.repeat(10000),
+		`${'.'.repeat(1000)}?${'.'.repeat(1000)}`,
+	];
+
+	test.each(pathological)('return quickly for input of length %#', (raw) => {
+		const start = performance.now();
+
+		expect(getDomainBase(raw)).toBe('');
+		expect(getDomainPath(raw)).toBe('');
+
+		expect(performance.now() - start).toBeLessThan(50);
+	});
+
+	test('handle malformed URLs without a path or without a dot', () => {
+		expect(getDomainBase('test.com')).toBe('');
+		expect(getDomainPath('test.com')).toBe('');
+		expect(getDomainBase('localhost/api/v1')).toBe('');
+		expect(getDomainPath('localhost/api/v1')).toBe('');
+		expect(getDomainBase('/api/v1.0/users/')).toBe('/api/v1.0');
+		expect(getDomainPath('/api/v1.0/users/')).toBe('/users/');
+	});
+
+	test('keep malformed URL parts within a single line', () => {
+		expect(getDomainBase('other.site\nexample.com/users')).toBe('example.com');
+		expect(getDomainPath('other.site\nexample.com/users')).toBe('/users');
+		expect(getDomainBase('example.com/users/john\nsmith')).toBe('example.com');
+		expect(getDomainPath('example.com/users/john\nsmith')).toBe('/users/john');
+	});
+
+	test('skip malformed URLs longer than 2048 characters', () => {
+		const raw = `test.com/${'a'.repeat(2048)}`;
+
+		expect(getDomainBase(raw)).toBe('');
+		expect(getDomainPath(raw)).toBe('');
+	});
+
+	test('do not block generateNodesGraph on a pathological HTTP Request URL', () => {
+		const url = '.'.repeat(20000);
+		const workflow: Partial<IWorkflowBase> = {
+			nodes: [
+				{
+					parameters: { url, authentication: 'none', requestMethod: 'GET' },
+					id: 'http-v1',
+					name: 'HTTP Request',
+					type: 'n8n-nodes-base.httpRequest',
+					typeVersion: 1,
+					position: [0, 0],
+				},
+				{
+					parameters: { url, authentication: 'none', method: 'GET' },
+					id: 'http-v4',
+					name: 'HTTP Request1',
+					type: 'n8n-nodes-base.httpRequest',
+					typeVersion: 4.2,
+					position: [200, 0],
+				},
+			],
+			connections: {},
+			pinData: {},
+		};
+
+		const start = performance.now();
+		const { nodeGraph } = generateNodesGraph(workflow, nodeTypes);
+
+		expect(performance.now() - start).toBeLessThan(200);
+		expect(nodeGraph.nodes['0'].domain).toBe('');
+		expect(nodeGraph.nodes['1'].domain_base).toBe('');
+		expect(nodeGraph.nodes['1'].domain_path).toBe('');
+	});
+});
+
 describe('generateNodesGraph', () => {
 	test('should return node graph when node type is unknown', () => {
 		const workflow: IWorkflowBase = {
