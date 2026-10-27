@@ -8,7 +8,7 @@ import {
 	OperationalError,
 } from 'n8n-workflow';
 
-import { sanitizeCustomCss, sanitizeHtml } from './utils';
+import { sanitizeCustomCss, sanitizeHtml, sanitizeRedirectUrl } from './utils';
 
 const SANDBOX_CSP =
 	'sandbox allow-downloads allow-forms allow-modals allow-orientation-lock allow-pointer-lock allow-popups allow-presentation allow-scripts allow-top-navigation allow-top-navigation-by-user-activation allow-top-navigation-to-custom-protocols';
@@ -50,7 +50,7 @@ export const renderFormCompletion = async (
 ): Promise<IWebhookResponseData> => {
 	const completionTitle = context.getNodeParameter('completionTitle', '') as string;
 	const completionMessage = context.getNodeParameter('completionMessage', '') as string;
-	const redirectUrl = context.getNodeParameter('redirectUrl', '') as string;
+	const redirectUrl = sanitizeRedirectUrl(context.getNodeParameter('redirectUrl', ''));
 	const options = context.getNodeParameter('options', {}) as {
 		formTitle: string;
 		customCss?: string;
@@ -71,7 +71,7 @@ export const renderFormCompletion = async (
 		`{{ $('${trigger?.name}').params.options?.appendAttribution === false ? false : true }}`,
 	) as boolean;
 
-	if (respondWith !== 'redirect') {
+	if (respondWith !== 'redirect' || !redirectUrl) {
 		res.setHeader('Content-Security-Policy', SANDBOX_CSP);
 	}
 

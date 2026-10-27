@@ -311,6 +311,7 @@ describe('formCompletionUtils', () => {
 					completionMessage: 'Form has been submitted successfully',
 					options: { formTitle: 'Form Title' },
 					respondWith: 'redirect',
+					redirectUrl: 'https://example.com/thanks',
 				};
 				return params[parameterName];
 			});
@@ -321,7 +322,34 @@ describe('formCompletionUtils', () => {
 				'Content-Security-Policy',
 				expect.any(String),
 			);
-			expect(mockResponse.render).toHaveBeenCalled();
+			expect(mockResponse.render).toHaveBeenCalledWith(
+				'form-trigger-completion',
+				expect.objectContaining({ redirectUrl: 'https://example.com/thanks' }),
+			);
+		});
+
+		it('should drop a redirectUrl with an unsafe scheme and keep the sandbox CSP', async () => {
+			mockWebhookFunctions.getNodeParameter.mockImplementation((parameterName: string) => {
+				const params: { [key: string]: any } = {
+					completionTitle: 'Form Completion',
+					completionMessage: 'Form has been submitted successfully',
+					options: { formTitle: 'Form Title' },
+					respondWith: 'redirect',
+					redirectUrl: 'javascript://%0aalert(document.domain)',
+				};
+				return params[parameterName];
+			});
+
+			await renderFormCompletion(mockWebhookFunctions, mockResponse, trigger);
+
+			expect(mockResponse.setHeader).toHaveBeenCalledWith(
+				'Content-Security-Policy',
+				expect.stringContaining('sandbox'),
+			);
+			expect(mockResponse.render).toHaveBeenCalledWith(
+				'form-trigger-completion',
+				expect.objectContaining({ redirectUrl: undefined }),
+			);
 		});
 	});
 

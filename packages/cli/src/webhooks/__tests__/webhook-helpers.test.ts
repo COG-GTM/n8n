@@ -17,6 +17,7 @@ import type {
 import {
 	createDeferredPromise,
 	FORM_NODE_TYPE,
+	FORM_TRIGGER_NODE_TYPE,
 	WAIT_NODE_TYPE,
 	CHAT_TRIGGER_NODE_TYPE,
 	WorkflowConfigurationError,
@@ -28,6 +29,7 @@ import { finished } from 'stream/promises';
 import {
 	autoDetectResponseMode,
 	handleFormRedirectionCase,
+	sanitizeFormRedirectUrl,
 	setupResponseNodePromise,
 	prepareExecutionData,
 	handleHostedChatResponse,
@@ -154,6 +156,77 @@ describe('handleFormRedirectionCase', () => {
 		});
 		const result = handleFormRedirectionCase(data, workflowStartNode);
 		expect(result).toEqual(data);
+	});
+
+	test.each([
+		'javascript://%0aalert(1)',
+		'JavaScript://%0aalert(document.domain)',
+		'  javascript://%0aalert(1)',
+		'data://text/html,<script>alert(1)</script>',
+		'vbscript://msgbox(1)',
+	])('should drop redirect with unsafe scheme %s', (location) => {
+		const data: IWebhookResponseCallbackData = {
+			responseCode: 307,
+			headers: { location },
+		};
+		const workflowStartNode = mock<INode>({ type: FORM_TRIGGER_NODE_TYPE, parameters: {} });
+
+		const result = handleFormRedirectionCase(data, workflowStartNode);
+
+		expect(result.responseCode).toBe(200);
+		expect(result.data).toBeUndefined();
+		expect((result?.headers as IDataObject)?.location).toBeUndefined();
+	});
+
+	test('should drop unsafe redirectURL from a JSON response body', () => {
+		const data: IWebhookResponseCallbackData = {
+			responseCode: 200,
+			data: { redirectURL: 'javascript://%0aalert(1)', other: 'value' },
+		};
+		const workflowStartNode = mock<INode>({ type: FORM_TRIGGER_NODE_TYPE, parameters: {} });
+
+		const result = handleFormRedirectionCase(data, workflowStartNode);
+
+		expect(result.data).toEqual({ other: 'value' });
+	});
+
+	test('should keep safe redirectURL from a JSON response body', () => {
+		const data: IWebhookResponseCallbackData = {
+			responseCode: 200,
+			data: { redirectURL: 'example.com/thanks' },
+		};
+		const workflowStartNode = mock<INode>({
+			type: WAIT_NODE_TYPE,
+			parameters: { resume: 'form' },
+		});
+
+		const result = handleFormRedirectionCase(data, workflowStartNode);
+
+		expect(result.data).toEqual({ redirectURL: 'https://example.com/thanks' });
+	});
+});
+
+describe('sanitizeFormRedirectUrl', () => {
+	test.each([
+		['https://example.com/path?q=1', 'https://example.com/path?q=1'],
+		['http://example.com', 'http://example.com'],
+		['example.com/thanks', 'https://example.com/thanks'],
+		['example.com/?next=http://other.com', 'https://example.com/?next=http://other.com'],
+	])('should allow %s', (input, expected) => {
+		expect(sanitizeFormRedirectUrl(input)).toBe(expected);
+	});
+
+	test.each([
+		'javascript://%0aalert(1)',
+		'javascript:alert(1)',
+		'data://text/html,<script>alert(1)</script>',
+		'ftp://example.com/file',
+		'',
+		'   ',
+		undefined,
+		123,
+	])('should reject %p', (input) => {
+		expect(sanitizeFormRedirectUrl(input)).toBeUndefined();
 	});
 });
 
