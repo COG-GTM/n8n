@@ -16,3 +16,9 @@ export class WebhookAuthorizationError extends ApplicationError {
 		super(message);
 	}
 }
+
+export class BinaryPayloadTooLargeError extends Error {
+	constructor() {
+		super('Binary payload exceeds the maximum allowed size');
+	}
+}
