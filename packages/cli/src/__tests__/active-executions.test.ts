@@ -166,11 +166,7 @@ describe('ActiveExecutions', () => {
 				activeExecutions.claimForResume(FAKE_SECOND_EXECUTION_ID, executionData),
 			).resolves.toBe(true);
 
-			expect(concurrencyControl.throttle).toHaveBeenCalledWith({
-				mode: executionData.executionMode,
-				executionId: FAKE_SECOND_EXECUTION_ID,
-			});
-			expect(concurrencyControl.release).not.toHaveBeenCalled();
+			expect(concurrencyControl.throttle).not.toHaveBeenCalled();
 			expect(executionRepository.updateExistingExecution).toHaveBeenCalledWith(
 				FAKE_SECOND_EXECUTION_ID,
 				{ status: 'running' },
@@ -184,19 +180,18 @@ describe('ActiveExecutions', () => {
 			await expect(
 				activeExecutions.claimForResume(FAKE_SECOND_EXECUTION_ID, executionData),
 			).resolves.toBe(false);
-			expect(concurrencyControl.release).toHaveBeenCalledWith({
-				mode: executionData.executionMode,
-			});
 		});
 
-		test('Should reuse the claim and its concurrency slot when adding the claimed execution data', async () => {
+		test('Should reuse the claim when adding the claimed execution data', async () => {
 			await activeExecutions.claimForResume(FAKE_SECOND_EXECUTION_ID, executionData);
 			executionRepository.updateExistingExecution.mockClear();
-			concurrencyControl.throttle.mockClear();
 
 			await activeExecutions.add(executionData, FAKE_SECOND_EXECUTION_ID);
 
-			expect(concurrencyControl.throttle).not.toHaveBeenCalled();
+			expect(concurrencyControl.throttle).toHaveBeenCalledWith({
+				mode: executionData.executionMode,
+				executionId: FAKE_SECOND_EXECUTION_ID,
+			});
 			expect(executionRepository.updateExistingExecution).toHaveBeenCalledWith(
 				FAKE_SECOND_EXECUTION_ID,
 				expect.objectContaining({ status: 'running', waitTill: null }),
@@ -240,9 +235,6 @@ describe('ActiveExecutions', () => {
 
 			await activeExecutions.releaseResumeClaim(FAKE_SECOND_EXECUTION_ID);
 
-			expect(concurrencyControl.release).toHaveBeenCalledWith({
-				mode: executionData.executionMode,
-			});
 			expect(executionRepository.updateExistingExecution).toHaveBeenCalledWith(
 				FAKE_SECOND_EXECUTION_ID,
 				{ status: 'waiting' },
