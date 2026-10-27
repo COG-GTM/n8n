@@ -4,7 +4,12 @@ import { ApplicationError } from '@n8n/errors';
 import { ExpressionExtensionError } from './errors/expression-extension.error';
 import { ExpressionError } from './errors/expression.error';
 import { evaluateExpression, setErrorHandler } from './expression-evaluator-proxy';
-import { sanitizer, sanitizerName } from './expression-sandboxing';
+import {
+	sanitizer,
+	sanitizerName,
+	thisSanitizer,
+	thisSanitizerName,
+} from './expression-sandboxing';
 import { isExpression } from './expressions/expression-helpers';
 import { extend, extendOptional } from './extensions';
 import { extendSyntax } from './extensions/expression-extension';
@@ -298,6 +303,7 @@ export class Expression {
 		data.extendOptional = extendOptional;
 
 		data[sanitizerName] = sanitizer;
+		data[thisSanitizerName] = thisSanitizer;
 
 		Object.assign(data, extendedFunctions);
 

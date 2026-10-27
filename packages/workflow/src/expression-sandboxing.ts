@@ -6,6 +6,9 @@ import { isSafeObjectProperty } from './utils';
 export const sanitizerName = '__sanitize';
 const sanitizerIdentifier = b.identifier(sanitizerName);
 
+export const thisSanitizerName = '__sanitizeThis';
+const thisSanitizerIdentifier = b.identifier(thisSanitizerName);
+
 export const DOLLAR_SIGN_ERROR = 'Cannot access "$" without calling it as a function';
 
 /**
@@ -118,53 +121,158 @@ export const DollarSignValidator: ASTAfterHook = (ast, _dataNode) => {
 	});
 };
 
+/**
+ * Property names expressions must never read. On top of the prototype-pollution
+ * denylist this covers the reflective built-ins that return those same values
+ * without naming them (e.g. `Object.getOwnPropertyDescriptor(fn, 'constructor')`).
+ */
+const unsafeExpressionProperties = new Set([
+	'getOwnPropertyDescriptor',
+	'getOwnPropertyDescriptors',
+	'setPrototypeOf',
+	'defineProperty',
+	'defineProperties',
+	'__defineGetter__',
+	'__defineSetter__',
+	'__lookupGetter__',
+	'__lookupSetter__',
+	'prepareStackTrace',
+	'mainModule',
+	'binding',
+	'_load',
+]);
+
+export const isSafeExpressionProperty = (property: unknown): boolean => {
+	if (typeof property === 'symbol') return true;
+	const name = String(property);
+	return isSafeObjectProperty(name) && !unsafeExpressionProperties.has(name);
+};
+
+const securityError = (property: unknown) =>
+	new ExpressionError(`Cannot access "${String(property)}" due to security concerns`);
+
+type KeyNode = { type: string; name?: unknown; value?: unknown };
+
+/**
+ * Returns the property name if it is statically known, otherwise `undefined`.
+ */
+const getStaticKey = (
+	key: KeyNode,
+	computed: boolean | null | undefined,
+): { name: unknown } | undefined => {
+	if (!computed && key.type === 'Identifier') return { name: key.name };
+	if (key.type === 'StringLiteral' || key.type === 'Literal' || key.type === 'NumericLiteral') {
+		return { name: key.value };
+	}
+	return undefined;
+};
+
 export const PrototypeSanitizer: ASTAfterHook = (ast, dataNode) => {
+	const wrapWithSanitizer = (node: Parameters<typeof b.callExpression>[1][number]) =>
+		b.callExpression(b.memberExpression(dataNode, sanitizerIdentifier), [node]);
+
 	astVisit(ast, {
 		visitMemberExpression(path) {
 			this.traverse(path);
 			const node = path.node;
-			if (!node.computed) {
+			if (!node.computed && node.property.type !== 'Identifier') {
 				// This is static, so we're safe to error here
-				if (node.property.type !== 'Identifier') {
-					throw new ExpressionError(
-						`Unknown property type ${node.property.type} while sanitising expression`,
-					);
-				}
-
-				if (!isSafeObjectProperty(node.property.name)) {
-					throw new ExpressionError(
-						`Cannot access "${node.property.name}" due to security concerns`,
-					);
-				}
-			} else if (node.property.type === 'StringLiteral' || node.property.type === 'Literal') {
-				// Check any static strings against our forbidden list
-				if (!isSafeObjectProperty(node.property.value as string)) {
-					throw new ExpressionError(
-						`Cannot access "${node.property.value as string}" due to security concerns`,
-					);
-				}
-			} else if (!node.property.type.endsWith('Literal')) {
-				// This isn't a literal value, so we need to wrap it
-				path.replace(
-					b.memberExpression(
-						// eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any
-						node.object as any,
-						// eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-						b.callExpression(b.memberExpression(dataNode, sanitizerIdentifier), [
-							// eslint-disable-next-line @typescript-eslint/no-explicit-any
-							node.property as any,
-						]),
-						true,
-					),
+				throw new ExpressionError(
+					`Unknown property type ${node.property.type} while sanitising expression`,
 				);
 			}
+
+			const staticKey = getStaticKey(node.property, node.computed);
+			if (staticKey) {
+				if (!isSafeExpressionProperty(staticKey.name)) throw securityError(staticKey.name);
+				return;
+			}
+
+			// Any other computed key (identifiers, template literals, calls, ...) is only known at
+			// runtime, so route it through the sanitizer
+			path.replace(
+				b.memberExpression(
+					// eslint-disable-next-line @typescript-eslint/no-unsafe-argument, @typescript-eslint/no-explicit-any
+					node.object as any,
+					// eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+					wrapWithSanitizer(node.property),
+					true,
+				),
+			);
+		},
+
+		// Destructuring reads properties without a member expression: `({ constructor: c } = fn)`
+		visitObjectPattern(path) {
+			this.traverse(path);
+			for (const property of path.node.properties) {
+				if (property.type !== 'Property' && property.type !== 'ObjectProperty') continue;
+
+				const staticKey = getStaticKey(property.key, property.computed);
+				if (staticKey) {
+					if (!isSafeExpressionProperty(staticKey.name)) throw securityError(staticKey.name);
+				} else {
+					// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+					property.key = wrapWithSanitizer(property.key);
+					property.computed = true;
+				}
+			}
+		},
+
+		// `with (fn) { constructor }` resolves forbidden properties as plain identifiers
+		visitWithStatement() {
+			throw new ExpressionError('"with" statements are not allowed due to security concerns');
+		},
+
+		// `import('child_process')` would load arbitrary modules into the n8n process
+		visitImportExpression() {
+			throw new ExpressionError('Dynamic imports are not allowed due to security concerns');
 		},
 	});
 };
 
+/**
+ * Expressions are compiled in sloppy mode, so `this` inside a plain function call is the
+ * host's `globalThis` (and with it the real `process`). Route every `this` inside a
+ * non-arrow function through a runtime check that strips the global object.
+ */
+export const ThisSanitizer: ASTAfterHook = (ast, dataNode) => {
+	let functionDepth = 0;
+
+	astVisit(ast, {
+		visitFunctionExpression(path) {
+			functionDepth++;
+			this.traverse(path);
+			functionDepth--;
+			return false;
+		},
+		visitFunctionDeclaration(path) {
+			functionDepth++;
+			this.traverse(path);
+			functionDepth--;
+			return false;
+		},
+		visitThisExpression(path) {
+			if (functionDepth > 0) {
+				path.replace(
+					b.callExpression(b.memberExpression(dataNode, thisSanitizerIdentifier), [
+						b.thisExpression(),
+					]),
+				);
+			}
+			return false;
+		},
+	});
+};
+
+export const thisSanitizer = (value: unknown): unknown =>
+	value === globalThis ? undefined : value;
+
+/**
+ * Runtime check for computed property keys. Coerces the key once so objects with a
+ * custom `toString` cannot return a safe name here and a forbidden one on access.
+ */
 export const sanitizer = (value: unknown): unknown => {
-	if (!isSafeObjectProperty(value as string)) {
-		throw new ExpressionError(`Cannot access "${value as string}" due to security concerns`);
-	}
-	return value;
+	const key = typeof value === 'symbol' ? value : String(value);
+	if (!isSafeExpressionProperty(key)) throw securityError(key);
+	return key;
 };

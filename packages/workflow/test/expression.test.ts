@@ -172,6 +172,27 @@ describe('Expression', () => {
 
 			expect(testFn).not.toHaveBeenCalled();
 		});
+
+		it('should not be able to reach the Function constructor through built-ins', () => {
+			const testFn = vi.fn();
+			Object.assign(global, { testFn });
+
+			vi.useFakeTimers({ now: new Date() });
+			const payloads = [
+				"={{ Object.getOwnPropertyDescriptor(Object.getOwnPropertyDescriptor(Object,'getPrototypeOf').value(parseInt),'constructor').value('testFn()')() }}",
+				"={{ Object.getOwnPropertyDescriptor(Object, 'getPrototypeOf') }}",
+				"={{ Object.getOwnPropertyDescriptor(Object, 'prototype').value }}",
+				'={{ parseInt[`constructor`](`testFn()`)() }}',
+				'={{ (({ constructor }) => constructor)(parseInt)(`testFn()`)() }}',
+				"={{ Date[{ toString: () => 'constructor' }]('testFn()')() }}",
+			];
+			for (const payload of payloads) {
+				expect(() => evaluate(payload)).toThrowError(ExpressionError);
+			}
+			vi.useRealTimers();
+
+			expect(testFn).not.toHaveBeenCalled();
+		});
 	});
 
 	describe('Test all expression value fixtures', () => {
