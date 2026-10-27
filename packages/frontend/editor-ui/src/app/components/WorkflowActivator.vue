@@ -142,13 +142,15 @@ async function activeChanged(newActiveState: string | number | boolean) {
 
 		if (conflictData) {
 			const { trigger, conflict } = conflictData;
-			const conflictingWorkflow = await workflowsStore.fetchWorkflow(conflict.workflowId);
+			const workflowName = conflict.workflowId
+				? (await workflowsStore.fetchWorkflow(conflict.workflowId)).name
+				: undefined;
 
 			uiStore.openModalWithData({
 				name: WORKFLOW_ACTIVATION_CONFLICTING_WEBHOOK_MODAL_KEY,
 				data: {
 					triggerType: trigger.type,
-					workflowName: conflictingWorkflow.name,
+					workflowName,
 					...conflict,
 				},
 			});

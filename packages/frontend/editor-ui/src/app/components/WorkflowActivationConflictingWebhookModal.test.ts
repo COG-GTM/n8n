@@ -160,4 +160,31 @@ describe('WorkflowActivationConflictingWebhookModal', () => {
 			'http://webhook-base/123/webhook',
 		);
 	});
+
+	it('should not reveal conflicting workflow details when the user cannot access it', async () => {
+		const props = {
+			modalName: WORKFLOW_ACTIVATION_CONFLICTING_WEBHOOK_MODAL_KEY,
+			data: {
+				triggerType: WEBHOOK_NODE_TYPE,
+				webhookPath: 'finance-export',
+				method: 'POST',
+			},
+		};
+
+		const wrapper = renderComponent({ props });
+		await waitFor(() => {
+			expect(wrapper.queryByTestId('conflicting-webhook-callout')).toBeInTheDocument();
+		});
+
+		expect(wrapper.getByTestId('conflicting-webhook-callout')).toHaveTextContent(
+			"A webhook trigger in a workflow you don't have access to uses a conflicting URL path, so this workflow cannot be activated",
+		);
+		expect(wrapper.getByTestId('conflicting-webhook-suggestion')).toHaveTextContent(
+			'Ask the owner of that workflow to deactivate it, or adjust the following URL path in either workflow:',
+		);
+		expect(wrapper.getByTestId('conflicting-webhook-path')).toHaveTextContent(
+			'http://webhook-base/finance-export',
+		);
+		expect(wrapper.queryByRole('link')).not.toBeInTheDocument();
+	});
 });

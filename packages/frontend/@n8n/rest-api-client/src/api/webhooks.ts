@@ -3,11 +3,15 @@ import type { IHttpRequestMethods } from 'n8n-workflow';
 import type { IRestApiContext } from '../types';
 import { makeRestApiRequest } from '../utils';
 
-type WebhookData = {
-	workflowId: string;
+/**
+ * `workflowId` and `node` are only returned when the current user can read the
+ * workflow that owns the webhook.
+ */
+export type WebhookData = {
+	workflowId?: string;
 	webhookPath: string;
 	method: IHttpRequestMethods;
-	node: string;
+	node?: string;
 };
 
 export const findWebhook = async (

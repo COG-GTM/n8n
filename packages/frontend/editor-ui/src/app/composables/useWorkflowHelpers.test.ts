@@ -361,6 +361,41 @@ describe('useWorkflowHelpers', () => {
 			});
 		});
 
+		it('should return a conflict when the conflicting workflow is not accessible to the user', async () => {
+			const workflowHelpers = useWorkflowHelpers();
+			uiStore.stateIsDirty = false;
+			vi.spyOn(workflowsStore, 'fetchWorkflow').mockResolvedValue({
+				nodes: [
+					{
+						type: WEBHOOK_NODE_TYPE,
+						webhookId: '1',
+						parameters: {
+							httpMethod: 'GET',
+							path: 'test-path',
+						},
+					},
+				],
+			} as unknown as IWorkflowDb);
+			vi.spyOn(apiWebhooks, 'findWebhook').mockResolvedValue({
+				method: 'GET',
+				webhookPath: 'test-path',
+			});
+			expect(await workflowHelpers.checkConflictingWebhooks('123')).toEqual({
+				conflict: {
+					method: 'GET',
+					webhookPath: 'test-path',
+				},
+				trigger: {
+					parameters: {
+						httpMethod: 'GET',
+						path: 'test-path',
+					},
+					type: 'n8n-nodes-base.webhook',
+					webhookId: '1',
+				},
+			});
+		});
+
 		it('should return conflicting webhook data and workflow id is different in trigger', async () => {
 			const workflowHelpers = useWorkflowHelpers();
 			uiStore.stateIsDirty = false;
