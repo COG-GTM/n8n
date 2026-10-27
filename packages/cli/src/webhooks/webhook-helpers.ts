@@ -9,7 +9,7 @@ import { GlobalConfig } from '@n8n/config';
 import type { Project } from '@n8n/db';
 import { Container } from '@n8n/di';
 import type express from 'express';
-import { BinaryDataService, ErrorReporter } from 'n8n-core';
+import { assertBinaryDataIdInScope, BinaryDataService, ErrorReporter } from 'n8n-core';
 import type {
 	IBinaryData,
 	IDataObject,
@@ -254,6 +254,7 @@ export function setupResponseNodePromise(
 		.then(async (response: IN8nHttpFullResponse) => {
 			const binaryData = (response.body as IDataObject)?.binaryData as IBinaryData;
 			if (binaryData?.id) {
+				assertBinaryDataIdInScope(binaryData.id, { workflowId: workflow.id, executionId });
 				res.header(response.headers);
 				const stream = await Container.get(BinaryDataService).getAsStream(binaryData.id);
 				stream.pipe(res, { end: false });
@@ -721,6 +722,7 @@ export async function executeWebhook(
 						responseData as WebhookResponseData,
 						lastNodeTaskData,
 						checkAllMainOutputs,
+						executionId,
 					);
 
 					if (!result.ok) {

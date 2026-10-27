@@ -1,7 +1,7 @@
 import { Container } from '@n8n/di';
 import { mock, type MockProxy } from 'jest-mock-extended';
 import { BinaryDataService } from 'n8n-core';
-import type { ITaskData, INodeExecutionData, IBinaryData } from 'n8n-workflow';
+import type { ITaskData, INodeExecutionData, IBinaryData, Workflow } from 'n8n-workflow';
 import { BINARY_ENCODING, OperationalError } from 'n8n-workflow';
 import assert from 'node:assert';
 import { Readable } from 'node:stream';
@@ -15,8 +15,14 @@ describe('extractWebhookLastNodeResponse', () => {
 	let lastNodeTaskData: MockProxy<ITaskData>;
 	let binaryDataService: MockProxy<BinaryDataService>;
 
+	const workflowId = 'workflow-id';
+	const executionId = 'execution-id';
+	const uuid = '0f9f6a7e-1c2b-4d3e-9f80-123456789abc';
+	const binaryDataId = (wfId: string, execId: string) =>
+		`filesystem-v2:workflows/${wfId}/executions/${execId}/binary_data/${uuid}`;
+
 	beforeEach(() => {
-		context = mock<WebhookExecutionContext>();
+		context = mock<WebhookExecutionContext>({ workflow: mock<Workflow>({ id: workflowId }) });
 		lastNodeTaskData = mock<ITaskData>();
 		binaryDataService = mock<BinaryDataService>();
 
@@ -216,8 +222,9 @@ describe('extractWebhookLastNodeResponse', () => {
 			const mockStream = new Readable();
 			binaryDataService.getAsStream.mockResolvedValue(mockStream);
 
+			const id = binaryDataId(workflowId, executionId);
 			const binaryData: IBinaryData = {
-				id: 'binary-123',
+				id,
 				mimeType: 'image/jpeg',
 				data: '',
 			};
@@ -235,6 +242,8 @@ describe('extractWebhookLastNodeResponse', () => {
 				context,
 				'firstEntryBinary',
 				lastNodeTaskData,
+				false,
+				executionId,
 			);
 
 			expect(result).toEqual({
@@ -245,7 +254,37 @@ describe('extractWebhookLastNodeResponse', () => {
 					contentType: 'image/jpeg',
 				},
 			});
-			assert(binaryDataService.getAsStream.mock.calls[0][0] === 'binary-123');
+			assert(binaryDataService.getAsStream.mock.calls[0][0] === id);
+		});
+
+		test.each([
+			['another workflow', binaryDataId('other-workflow-id', executionId)],
+			['another execution', binaryDataId(workflowId, 'other-execution-id')],
+			['an arbitrary storage key', 's3:some/other/key'],
+		])('should return error when binary data belongs to %s', async (_, id) => {
+			const nodeExecutionData: INodeExecutionData = {
+				json: {},
+				binary: { data: { id, mimeType: 'application/pdf', data: '' } },
+			};
+			lastNodeTaskData.data = {
+				main: [[nodeExecutionData]],
+			};
+
+			context.evaluateSimpleWebhookDescriptionExpression.mockReturnValue('data');
+
+			const result = await extractWebhookLastNodeResponse(
+				context,
+				'firstEntryBinary',
+				lastNodeTaskData,
+				false,
+				executionId,
+			);
+
+			expect(result).toEqual({
+				ok: false,
+				error: new OperationalError('The binary data to return does not belong to this execution'),
+			});
+			expect(binaryDataService.getAsStream).not.toHaveBeenCalled();
 		});
 
 		it('should return error when no item found', async () => {
