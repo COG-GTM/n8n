@@ -59,6 +59,52 @@ describe('PrototypeSanitizer', () => {
 			}).toThrowError(errorRegex);
 		});
 
+		it('should not allow reflection helpers that leak forbidden values', () => {
+			const data = { __sanitize: sanitizer, Object, parseInt };
+			for (const expr of [
+				"{{ Object.getOwnPropertyDescriptor(Object, 'getPrototypeOf') }}",
+				"{{ Object.getOwnPropertyDescriptor(Object, 'prototype').value }}",
+				"{{ Object['getOwnPropertyDescriptors'](parseInt) }}",
+				'{{ Object.defineProperty({}, "a", {}) }}',
+				'{{ Object.setPrototypeOf({}, null) }}',
+				'{{ ({}).__lookupGetter__("a") }}',
+				'{{ ({}).__defineGetter__("a", () => 1) }}',
+			]) {
+				expect(() => tournament.execute(expr, data)).toThrowError(errorRegex);
+			}
+		});
+
+		it('should not allow destructuring forbidden properties', () => {
+			const data = { __sanitize: sanitizer, parseInt };
+			for (const expr of [
+				'{{ (({ constructor: c }) => c)(parseInt) }}',
+				'{{ (({ constructor }) => constructor)(parseInt) }}',
+				"{{ (({ 'constructor': c }) => c)(parseInt) }}",
+				"{{ (({ ['constructor']: c }) => c)(parseInt) }}",
+				"{{ (({ ['constr' + 'uctor']: c }) => c)(parseInt) }}",
+				'{{ (({ [`constructor`]: c }) => c)(parseInt) }}',
+				'{{ (() => { const { constructor: c } = parseInt; return c; })() }}',
+				'{{ (({ a: { constructor: c } }) => c)({ a: parseInt }) }}',
+			]) {
+				expect(() => tournament.execute(expr, data)).toThrowError(errorRegex);
+			}
+		});
+
+		it('should still allow safe destructuring', () => {
+			const expr =
+				"{{ (({ a, ['b']: b, [`c`]: c, 0: d }) => a + b + c + d)({ a: 1, b: 2, c: 3, 0: 4 }) }}";
+			expect(tournament.execute(expr, { __sanitize: sanitizer })).toBe(10);
+		});
+
+		it('should not allow "with" statements', () => {
+			expect(() =>
+				tournament.execute('{{ (() => { with (parseInt) { return 1; } })() }}', {
+					__sanitize: sanitizer,
+					parseInt,
+				}),
+			).toThrowError('"with" statements are not allowed due to security concerns');
+		});
+
 		describe('Dollar sign identifier handling', () => {
 			it('should not allow bare $ identifier', () => {
 				expect(() => {
@@ -223,6 +269,45 @@ describe('PrototypeSanitizer', () => {
 					Number,
 				});
 			}).toThrowError(errorRegex);
+		});
+
+		it('should not allow access to constructor via template literals', () => {
+			const data = { __sanitize: sanitizer, parseInt };
+			expect(() => tournament.execute('{{ parseInt[`constructor`] }}', data)).toThrowError(
+				errorRegex,
+			);
+			expect(() =>
+				// eslint-disable-next-line n8n-local-rules/no-interpolation-in-regular-string
+				tournament.execute('{{ parseInt[`constr${"uctor"}`] }}', data),
+			).toThrowError(errorRegex);
+		});
+
+		it('should not allow access to forbidden properties via non-string keys', () => {
+			const data = { __sanitize: sanitizer, parseInt };
+			expect(() => tournament.execute("{{ parseInt[['constructor']] }}", data)).toThrowError(
+				errorRegex,
+			);
+			expect(() =>
+				tournament.execute("{{ parseInt[{ toString: () => 'constructor' }] }}", data),
+			).toThrowError(errorRegex);
+		});
+
+		it('should keep symbol keys returned by Symbol.toPrimitive', () => {
+			const symbol = Symbol('id');
+			const data = {
+				__sanitize: sanitizer,
+				obj: { [symbol]: 42 },
+				key: { [Symbol.toPrimitive]: () => symbol },
+			};
+			expect(tournament.execute('{{ obj[key] }}', data)).toBe(42);
+		});
+
+		it('should still allow safe computed access', () => {
+			const data = { __sanitize: sanitizer, obj: { a: 1, 0: 'zero' }, arr: [5, 6] };
+			expect(tournament.execute('{{ obj[`a`] }}', data)).toBe(1);
+			expect(tournament.execute('{{ obj[0] }}', data)).toBe('zero');
+			expect(tournament.execute('{{ arr[1] }}', data)).toBe(6);
+			expect(tournament.execute('{{ arr[arr.length - 1] }}', data)).toBe(6);
 		});
 	});
 });
