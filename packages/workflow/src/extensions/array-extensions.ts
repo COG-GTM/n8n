@@ -5,6 +5,7 @@ import type { Extension, ExtensionMap } from './extensions';
 import { compact as oCompact } from './object-extensions';
 import { ExpressionExtensionError } from '../errors/expression-extension.error';
 import { ExpressionError } from '../errors/expression.error';
+import { isSafeExpressionProperty } from '../expression-sandboxing';
 import { randomInt } from '../utils';
 
 function first(value: unknown[]): unknown {
@@ -151,6 +152,11 @@ function smartJoin(value: unknown[], extraArgs: string[]): object {
 		throw new ExpressionExtensionError(
 			'smartJoin(): expected two string args, e.g. .smartJoin("name", "value")',
 		);
+	}
+	for (const field of [keyField, valueField]) {
+		if (!isSafeExpressionProperty(field)) {
+			throw new ExpressionError(`Cannot access "${field}" due to security concerns`);
+		}
 	}
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-return
 	return value.reduce<any>((o, v) => {

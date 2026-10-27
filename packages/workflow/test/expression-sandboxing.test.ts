@@ -292,6 +292,16 @@ describe('PrototypeSanitizer', () => {
 			).toThrowError(errorRegex);
 		});
 
+		it('should keep symbol keys returned by Symbol.toPrimitive', () => {
+			const symbol = Symbol('id');
+			const data = {
+				__sanitize: sanitizer,
+				obj: { [symbol]: 42 },
+				key: { [Symbol.toPrimitive]: () => symbol },
+			};
+			expect(tournament.execute('{{ obj[key] }}', data)).toBe(42);
+		});
+
 		it('should still allow safe computed access', () => {
 			const data = { __sanitize: sanitizer, obj: { a: 1, 0: 'zero' }, arr: [5, 6] };
 			expect(tournament.execute('{{ obj[`a`] }}', data)).toBe(1);

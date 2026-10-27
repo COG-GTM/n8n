@@ -184,6 +184,8 @@ describe('Expression', () => {
 				'={{ parseInt[`constructor`](\'testFn()\')() }}',
 				"={{ parseInt[['constructor']]('testFn()')() }}",
 				"={{ (({ constructor: c }) => c)(parseInt)('testFn()')() }}",
+				"={{ [parseInt].smartJoin('name', 'constructor').parseInt('testFn()')() }}",
+				"={{ [Object].smartJoin('name', 'getOwnPropertyDescriptor') }}",
 			];
 			for (const value of expressions) {
 				expect(() => evaluate(value)).toThrowError(ExpressionError);

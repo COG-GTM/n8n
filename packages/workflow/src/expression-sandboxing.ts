@@ -1,4 +1,5 @@
 import { type ASTAfterHook, astBuilders as b, astVisit } from '@n8n/tournament';
+import type { ExpressionKind } from 'ast-types/gen/kinds';
 
 import { ExpressionError } from './errors';
 import { isSafeObjectProperty } from './utils';
@@ -165,9 +166,7 @@ const checkStaticKey = (key: { type: string; value?: unknown }): boolean => {
 };
 
 export const PrototypeSanitizer: ASTAfterHook = (ast, dataNode) => {
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	const wrapWithSanitizer = (node: any) =>
-		// eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+	const wrapWithSanitizer = (node: ExpressionKind) =>
 		b.callExpression(b.memberExpression(dataNode, sanitizerIdentifier), [node]);
 
 	astVisit(ast, {
@@ -228,10 +227,22 @@ export const PrototypeSanitizer: ASTAfterHook = (ast, dataNode) => {
 	});
 };
 
+/**
+ * Converts a value to the property key JavaScript would use for it (ToPropertyKey),
+ * invoking any `toString`/`Symbol.toPrimitive` exactly once.
+ */
+const toPropertyKey = (value: unknown): string | symbol | number => {
+	if (typeof value === 'string' || typeof value === 'symbol' || typeof value === 'number') {
+		return value;
+	}
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	return Reflect.ownKeys({ [value as any]: undefined })[0];
+};
+
 export const sanitizer = (value: unknown): unknown => {
-	// Coerce to the property key JavaScript would use, so that values such as
-	// `['constructor']` or objects with a custom `toString` cannot bypass the check
-	const key = typeof value === 'symbol' || typeof value === 'number' ? value : String(value);
+	// Check the coerced key so that values such as `['constructor']` or objects
+	// with a custom `toString` cannot bypass the check
+	const key = toPropertyKey(value);
 	if (typeof key === 'string' && !isSafeExpressionProperty(key)) {
 		throw securityError(key);
 	}
