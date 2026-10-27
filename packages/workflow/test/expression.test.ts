@@ -172,6 +172,24 @@ describe('Expression', () => {
 
 			expect(testFn).not.toHaveBeenCalled();
 		});
+
+		it.each([
+			'={{ Math.max[`constructor`]("testFn(); return 1")() }}',
+			"={{ Math.max[['constructor']]('testFn(); return 1')() }}",
+			"={{ Math.max[{ toString() { return 'constructor' } }]('testFn(); return 1')() }}",
+			"={{ (() => { const { constructor: F } = Math.max; return F('testFn(); return 1')() })() }}",
+			"={{ Object.getOwnPropertyDescriptor(Object.getOwnPropertyDescriptor(Object.getOwnPropertyDescriptor(Object, 'prototype').value, '__proto__').get.call(Math.max), 'constructor').value('testFn(); return 1')() }}",
+			"={{ ({}).__lookupGetter__('__proto__').call(Math.max) }}",
+		])('should not escape the sandbox via %s', (value) => {
+			const testFn = vi.fn();
+			Object.assign(global, { testFn });
+
+			vi.useFakeTimers({ now: new Date() });
+			expect(() => evaluate(value)).toThrowError(/due to security concerns/);
+			vi.useRealTimers();
+
+			expect(testFn).not.toHaveBeenCalled();
+		});
 	});
 
 	describe('Test all expression value fixtures', () => {
