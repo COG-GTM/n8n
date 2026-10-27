@@ -95,6 +95,7 @@ export interface PartialAdditionalData {
 	webhookBaseUrl: string;
 	webhookWaitingBaseUrl: string;
 	webhookTestBaseUrl: string;
+	waitingExecutionToken?: string;
 	currentNodeParameters?: INodeParameters;
 	executionTimeoutTimestamp?: number;
 	userId?: string;

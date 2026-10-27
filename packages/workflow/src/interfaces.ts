@@ -2695,6 +2695,8 @@ export interface IWorkflowExecuteAdditionalData {
 	webhookBaseUrl: string;
 	webhookWaitingBaseUrl: string;
 	webhookTestBaseUrl: string;
+	/** Returns the token that authorizes the waiting-webhook/form URLs of an execution */
+	getWaitingExecutionToken?: (executionId: string) => string;
 	currentNodeParameters?: INodeParameters;
 	executionTimeoutTimestamp?: number;
 	userId?: string;

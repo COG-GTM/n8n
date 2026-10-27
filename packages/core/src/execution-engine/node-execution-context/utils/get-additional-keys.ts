@@ -7,6 +7,7 @@ import type {
 import { LoggerProxy } from 'n8n-workflow';
 
 import { PLACEHOLDER_EMPTY_EXECUTION_ID } from '@/constants';
+import { buildWaitingExecutionPath } from '@/utils/signature-helpers';
 
 import {
 	setWorkflowExecutionMetadata,
@@ -24,8 +25,12 @@ export function getAdditionalKeys(
 	options?: { secretsEnabled?: boolean },
 ): IWorkflowDataProxyAdditionalKeys {
 	const executionId = additionalData.executionId ?? PLACEHOLDER_EMPTY_EXECUTION_ID;
-	const resumeUrl = `${additionalData.webhookWaitingBaseUrl}/${executionId}`;
-	const resumeFormUrl = `${additionalData.formWaitingBaseUrl}/${executionId}`;
+	const waitingToken = additionalData.executionId
+		? additionalData.getWaitingExecutionToken?.(additionalData.executionId)
+		: undefined;
+	const waitingPath = buildWaitingExecutionPath(executionId, waitingToken);
+	const resumeUrl = `${additionalData.webhookWaitingBaseUrl}/${waitingPath}`;
+	const resumeFormUrl = `${additionalData.formWaitingBaseUrl}/${waitingPath}`;
 	return {
 		$execution: {
 			id: executionId,

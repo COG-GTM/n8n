@@ -371,6 +371,18 @@ export const useWorkflowsStore = defineStore(STORES.WORKFLOWS, () => {
 	const readonlyActiveExecutionId = computed(() => activeExecutionId.value);
 	const readonlyPreviousExecutionId = computed(() => previousExecutionId.value);
 
+	const waitingExecutionTokens = ref<Record<string, string>>({});
+
+	function setWaitingExecutionToken(executionId: string, token: string) {
+		waitingExecutionTokens.value[executionId] = token;
+	}
+
+	/** Path segment for waiting-webhook/form URLs, including the execution's token when known */
+	function getWaitingExecutionPath(executionId: string) {
+		const token = waitingExecutionTokens.value[executionId];
+		return token ? `${executionId}-${token}` : executionId;
+	}
+
 	function setActiveExecutionId(id: string | null | undefined) {
 		if (id) previousExecutionId.value = activeExecutionId.value;
 		activeExecutionId.value = id;
@@ -1366,7 +1378,7 @@ export const useWorkflowsStore = defineStore(STORES.WORKFLOWS, () => {
 	function getFormResumeUrl(node: INode, executionId: string) {
 		const { webhookSuffix } = (node.parameters.options ?? {}) as IDataObject;
 		const suffix = webhookSuffix && typeof webhookSuffix !== 'object' ? `/${webhookSuffix}` : '';
-		const testUrl = `${rootStore.formWaitingUrl}/${executionId}${suffix}`;
+		const testUrl = `${rootStore.formWaitingUrl}/${getWaitingExecutionPath(executionId)}${suffix}`;
 		return testUrl;
 	}
 
@@ -1826,6 +1838,8 @@ export const useWorkflowsStore = defineStore(STORES.WORKFLOWS, () => {
 		workflowExecutionStartedData,
 		activeExecutionId: readonlyActiveExecutionId,
 		previousExecutionId: readonlyPreviousExecutionId,
+		setWaitingExecutionToken,
+		getWaitingExecutionPath,
 		subWorkflowExecutionError,
 		executionWaitingForWebhook,
 		workflowsById,

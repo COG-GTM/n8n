@@ -12,6 +12,10 @@ export async function executionStarted(
 ) {
 	const workflowsStore = useWorkflowsStore();
 
+	if (data.waitingExecutionToken) {
+		workflowsStore.setWaitingExecutionToken(data.executionId, data.waitingExecutionToken);
+	}
+
 	// No workflow execution is ongoing, so we can ignore this event
 	if (typeof workflowsStore.activeExecutionId === 'undefined') {
 		return;

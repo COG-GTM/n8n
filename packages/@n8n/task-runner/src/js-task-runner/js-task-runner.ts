@@ -403,6 +403,7 @@ export class JsTaskRunner extends TaskRunner {
 	}
 
 	private createDataProxy(data: JsTaskData, workflow: Workflow, itemIndex: number) {
+		const { waitingExecutionToken, ...additionalData } = data.additionalData;
 		return new WorkflowDataProxy(
 			workflow,
 			data.runExecutionData,
@@ -413,7 +414,12 @@ export class JsTaskRunner extends TaskRunner {
 			data.siblingParameters,
 			data.mode,
 			getAdditionalKeys(
-				data.additionalData as IWorkflowExecuteAdditionalData,
+				{
+					...additionalData,
+					getWaitingExecutionToken: waitingExecutionToken
+						? () => waitingExecutionToken
+						: undefined,
+				} as IWorkflowExecuteAdditionalData,
 				data.mode,
 				data.runExecutionData,
 			),

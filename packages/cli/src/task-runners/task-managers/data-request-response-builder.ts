@@ -44,6 +44,9 @@ export class DataRequestResponseBuilder {
 			webhookBaseUrl: additionalData.webhookBaseUrl,
 			webhookTestBaseUrl: additionalData.webhookTestBaseUrl,
 			webhookWaitingBaseUrl: additionalData.webhookWaitingBaseUrl,
+			waitingExecutionToken: additionalData.executionId
+				? additionalData.getWaitingExecutionToken?.(additionalData.executionId)
+				: undefined,
 			currentNodeParameters: additionalData.currentNodeParameters,
 			executionId: additionalData.executionId,
 			executionTimeoutTimestamp: additionalData.executionTimeoutTimestamp,

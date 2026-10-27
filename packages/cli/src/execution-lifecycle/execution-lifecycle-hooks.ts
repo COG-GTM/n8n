@@ -3,7 +3,12 @@ import { ExecutionRepository } from '@n8n/db';
 import { LifecycleMetadata } from '@n8n/decorators';
 import { Container, Service } from '@n8n/di';
 import { stringify } from 'flatted';
-import { ErrorReporter, InstanceSettings, ExecutionLifecycleHooks } from 'n8n-core';
+import {
+	ErrorReporter,
+	InstanceSettings,
+	ExecutionLifecycleHooks,
+	generateWaitingExecutionToken,
+} from 'n8n-core';
 import type {
 	IWorkflowBase,
 	WorkflowExecuteMode,
@@ -235,6 +240,10 @@ function hookFunctionsPush(
 					flattedRunData: data?.resultData.runData
 						? stringify(data.resultData.runData)
 						: stringify({}),
+					waitingExecutionToken: generateWaitingExecutionToken(
+						executionId,
+						Container.get(InstanceSettings).hmacSignatureSecret,
+					),
 				},
 			},
 			pushRef,

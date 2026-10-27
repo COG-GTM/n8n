@@ -178,13 +178,15 @@ export const waitingNodeTooltip = (node: INodeUi | null | undefined, workflow?: 
 	try {
 		const waitingNodeTooltip = useNodeTypesStore().getNodeType(node.type)?.waitingNodeTooltip;
 		if (waitingNodeTooltip) {
-			const activeExecutionId = useWorkflowsStore().activeExecutionId as string;
+			const workflowsStore = useWorkflowsStore();
+			const activeExecutionId = workflowsStore.activeExecutionId as string;
+			const waitingPath = workflowsStore.getWaitingExecutionPath(activeExecutionId);
 			const additionalData: IWorkflowDataProxyAdditionalKeys = {
 				$execution: {
 					id: activeExecutionId,
 					mode: 'test',
-					resumeUrl: `${useRootStore().webhookWaitingUrl}/${activeExecutionId}`,
-					resumeFormUrl: `${useRootStore().formWaitingUrl}/${activeExecutionId}`,
+					resumeUrl: `${useRootStore().webhookWaitingUrl}/${waitingPath}`,
+					resumeFormUrl: `${useRootStore().formWaitingUrl}/${waitingPath}`,
 				},
 			};
 			if (workflow) {

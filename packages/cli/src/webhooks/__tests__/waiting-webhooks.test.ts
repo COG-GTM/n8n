@@ -2,7 +2,12 @@ import type { IExecutionResponse, ExecutionRepository } from '@n8n/db';
 import type express from 'express';
 import { mock } from 'jest-mock-extended';
 import type { InstanceSettings } from 'n8n-core';
-import { generateUrlSignature, prepareUrlForSigning, WAITING_TOKEN_QUERY_PARAM } from 'n8n-core';
+import {
+	generateUrlSignature,
+	generateWaitingExecutionToken,
+	prepareUrlForSigning,
+	WAITING_TOKEN_QUERY_PARAM,
+} from 'n8n-core';
 
 import { ConflictError } from '@/errors/response-errors/conflict.error';
 import { NotFoundError } from '@/errors/response-errors/not-found.error';
@@ -23,8 +28,68 @@ describe('WaitingWebhooks', () => {
 		mockInstanceSettings,
 	);
 
+	const authorizedRequest = (executionId = '123') =>
+		mock<WaitingWebhookRequest>({
+			params: {
+				path: `${executionId}-${generateWaitingExecutionToken(executionId, SIGNING_SECRET)}`,
+			},
+		});
+
 	beforeEach(() => {
 		jest.restoreAllMocks();
+		executionRepository.findSingleExecution.mockReset();
+	});
+
+	describe('authorization', () => {
+		it.each([
+			['without a token', '123'],
+			['with an invalid token', '123-invalid'],
+			[
+				'with the token of another execution',
+				`123-${generateWaitingExecutionToken('124', SIGNING_SECRET)}`,
+			],
+		])('should throw NotFoundError %s without loading the execution', async (_, path) => {
+			executionRepository.findSingleExecution.mockResolvedValue(
+				mock<IExecutionResponse>({ status: 'waiting' }),
+			);
+			const req = mock<WaitingWebhookRequest>({
+				url: `/webhook-waiting/${path}`,
+				query: {},
+				host: 'example.com',
+				headers: { host: 'example.com' },
+				params: { path },
+			});
+			const res = mock<express.Response>();
+
+			await expect(waitingWebhooks.executeWebhook(req, res)).rejects.toThrowError(NotFoundError);
+
+			expect(executionRepository.findSingleExecution).not.toHaveBeenCalled();
+		});
+
+		it('should accept a signed Send and Wait url', async () => {
+			executionRepository.findSingleExecution.mockResolvedValue(undefined);
+			const host = 'example.com';
+			const signature = generateUrlSignature(
+				prepareUrlForSigning(new URL('/webhook-waiting/123/node?approved=true', `http://${host}`)),
+				SIGNING_SECRET,
+			);
+			const req = mock<WaitingWebhookRequest>({
+				url: `/webhook-waiting/123/node?approved=true&${WAITING_TOKEN_QUERY_PARAM}=${signature}`,
+				query: { approved: 'true', [WAITING_TOKEN_QUERY_PARAM]: signature },
+				host,
+				headers: { host },
+				params: { path: '123', suffix: 'node' },
+			});
+
+			await expect(
+				waitingWebhooks.executeWebhook(req, mock<express.Response>()),
+			).rejects.toThrowError(NotFoundError);
+
+			expect(executionRepository.findSingleExecution).toHaveBeenCalledWith(
+				'123',
+				expect.anything(),
+			);
+		});
 	});
 
 	it('should throw NotFoundError if there is no execution to resume', async () => {
@@ -36,10 +101,7 @@ describe('WaitingWebhooks', () => {
 		/**
 		 * Act
 		 */
-		const promise = waitingWebhooks.executeWebhook(
-			mock<WaitingWebhookRequest>(),
-			mock<express.Response>(),
-		);
+		const promise = waitingWebhooks.executeWebhook(authorizedRequest(), mock<express.Response>());
 
 		/**
 		 * Assert
@@ -58,10 +120,7 @@ describe('WaitingWebhooks', () => {
 		/**
 		 * Act
 		 */
-		const promise = waitingWebhooks.executeWebhook(
-			mock<WaitingWebhookRequest>(),
-			mock<express.Response>(),
-		);
+		const promise = waitingWebhooks.executeWebhook(authorizedRequest(), mock<express.Response>());
 
 		/**
 		 * Assert
@@ -80,10 +139,7 @@ describe('WaitingWebhooks', () => {
 		/**
 		 * Act
 		 */
-		const promise = waitingWebhooks.executeWebhook(
-			mock<WaitingWebhookRequest>(),
-			mock<express.Response>(),
-		);
+		const promise = waitingWebhooks.executeWebhook(authorizedRequest(), mock<express.Response>());
 
 		/**
 		 * Assert

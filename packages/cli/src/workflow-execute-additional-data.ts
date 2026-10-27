@@ -7,7 +7,12 @@ import { Logger, ModuleRegistry } from '@n8n/backend-common';
 import { GlobalConfig } from '@n8n/config';
 import { ExecutionRepository, WorkflowRepository } from '@n8n/db';
 import { Container } from '@n8n/di';
-import { ExternalSecretsProxy, WorkflowExecute } from 'n8n-core';
+import {
+	ExternalSecretsProxy,
+	generateWaitingExecutionToken,
+	InstanceSettings,
+	WorkflowExecute,
+} from 'n8n-core';
 import { UnexpectedError, Workflow } from 'n8n-workflow';
 import type {
 	IDataObject,
@@ -400,6 +405,11 @@ export async function getBase({
 		webhookBaseUrl: urlBaseWebhook + globalConfig.endpoints.webhook,
 		webhookWaitingBaseUrl: urlBaseWebhook + globalConfig.endpoints.webhookWaiting,
 		webhookTestBaseUrl: urlBaseWebhook + globalConfig.endpoints.webhookTest,
+		getWaitingExecutionToken: (executionId: string) =>
+			generateWaitingExecutionToken(
+				executionId,
+				Container.get(InstanceSettings).hmacSignatureSecret,
+			),
 		currentNodeParameters,
 		executionTimeoutTimestamp,
 		userId,
