@@ -9,7 +9,9 @@ import { computed } from 'vue';
 import { CHAT_TRIGGER_NODE_TYPE, FORM_TRIGGER_NODE_TYPE, WEBHOOK_NODE_TYPE } from 'n8n-workflow';
 
 import { N8nButton, N8nCallout, N8nLink, N8nText } from '@n8n/design-system';
+import { useI18n } from '@n8n/i18n';
 const modalBus = createEventBus();
+const i18n = useI18n();
 const uiStore = useUIStore();
 const rootStore = useRootStore();
 
@@ -87,14 +89,20 @@ const onClick = async () => {
 				uses a conflicting URL path, so this workflow cannot be activated
 			</N8nCallout>
 			<N8nCallout v-else theme="danger" data-test-id="conflicting-webhook-callout">
-				A {{ webhookTypeUi.callout }} in a workflow you don't have access to uses a conflicting URL
-				path, so this workflow cannot be activated
+				{{
+					i18n.baseText('workflowActivator.conflictingWebhook.inaccessibleWorkflow.callout', {
+						interpolate: { triggerType: webhookTypeUi.callout },
+					})
+				}}
 			</N8nCallout>
 			<div :class="$style.container">
 				<div v-if="!isConflictingWorkflowAccessible">
 					<N8nText color="text-base" data-test-id="conflicting-webhook-suggestion">
-						Ask the owner of that workflow to deactivate it, or
-						{{ webhookTypeUi.action }}
+						{{
+							i18n.baseText('workflowActivator.conflictingWebhook.inaccessibleWorkflow.suggestion', {
+								interpolate: { action: webhookTypeUi.action },
+							})
+						}}
 					</N8nText>
 				</div>
 				<div v-else>

@@ -6,6 +6,7 @@ export type * from './frontend-settings';
 export type * from './user';
 export type * from './api-keys';
 export type * from './community-node-types';
+export type * from './webhooks';
 export {
 	chatHubConversationModelSchema,
 	type ChatModelDto,

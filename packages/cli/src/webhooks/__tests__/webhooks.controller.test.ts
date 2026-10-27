@@ -117,5 +117,16 @@ describe('WebhooksController', () => {
 			expect(result).toBeNull();
 			expect(workflowFinderService.findWorkflowForUser).not.toHaveBeenCalled();
 		});
+
+		it('returns null without metadata when the access check throws', async () => {
+			webhookService.findWebhook.mockResolvedValue(webhook);
+			workflowFinderService.findWorkflowForUser.mockRejectedValue(new Error('db down'));
+
+			const result = await controller.findWebhook(
+				makeRequest({ path: 'finance-export', method: 'POST' }),
+			);
+
+			expect(result).toBeNull();
+		});
 	});
 });

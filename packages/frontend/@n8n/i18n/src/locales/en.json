@@ -2814,6 +2814,8 @@
 	"versionCard.unknown": "unknown",
 	"versionCard.version": "Version",
 	"workflowActivator.workflowIsActive": "Workflow is already active",
+	"workflowActivator.conflictingWebhook.inaccessibleWorkflow.callout": "A {triggerType} in a workflow you don't have access to uses a conflicting URL path, so this workflow cannot be activated",
+	"workflowActivator.conflictingWebhook.inaccessibleWorkflow.suggestion": "Ask the owner of that workflow to deactivate it, or {action}",
 	"workflowActivator.activateWorkflow": "Activate workflow",
 	"workflowActivator.deactivateWorkflow": "Deactivate workflow",
 	"workflowActivator.active": "Active",
