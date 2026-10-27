@@ -235,8 +235,9 @@ const toPropertyKey = (value: unknown): string | symbol | number => {
 	if (typeof value === 'string' || typeof value === 'symbol' || typeof value === 'number') {
 		return value;
 	}
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	return Reflect.ownKeys({ [value as any]: undefined })[0];
+	// A computed key performs ToPropertyKey at runtime; the cast only satisfies the
+	// compile-time key type, the value itself is coerced by the engine
+	return Reflect.ownKeys({ [value as PropertyKey]: undefined })[0];
 };
 
 export const sanitizer = (value: unknown): unknown => {
