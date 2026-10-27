@@ -121,6 +121,13 @@ describe('getDomainBase and getDomainPath with pathological input', () => {
 		expect(getDomainPath('/api/v1.0/users/')).toBe('/users/');
 	});
 
+	test('keep malformed URL parts within a single line', () => {
+		expect(getDomainBase('other.site\nexample.com/users')).toBe('example.com');
+		expect(getDomainPath('other.site\nexample.com/users')).toBe('/users');
+		expect(getDomainBase('example.com/users/john\nsmith')).toBe('example.com');
+		expect(getDomainPath('example.com/users/john\nsmith')).toBe('/users/john');
+	});
+
 	test('skip malformed URLs longer than 2048 characters', () => {
 		const raw = `test.com/${'a'.repeat(2048)}`;
 

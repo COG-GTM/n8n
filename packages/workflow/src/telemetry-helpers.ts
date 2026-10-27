@@ -104,19 +104,23 @@ const MAX_MALFORMED_URL_LENGTH = 2048;
 
 /**
  * Split a URL that `new URL()` rejects into everything before the first `/` that
- * follows the first `.` and the remainder. Linear time, so attacker-controlled
- * node parameters cannot stall the process.
+ * follows the first `.` and the rest of that line, considering only the first line
+ * that has both. Linear time, so attacker-controlled node parameters cannot stall the process.
  */
 function splitMalformedUrl(raw: string) {
 	if (typeof raw !== 'string' || raw.length > MAX_MALFORMED_URL_LENGTH) return undefined;
 
-	const firstDot = raw.indexOf('.');
-	if (firstDot === -1) return undefined;
+	for (const line of raw.split(/[\n\r\u2028\u2029]/)) {
+		const firstDot = line.indexOf('.');
+		if (firstDot === -1) continue;
 
-	const pathStart = raw.indexOf('/', firstDot + 1);
-	if (pathStart === -1) return undefined;
+		const pathStart = line.indexOf('/', firstDot + 1);
+		if (pathStart === -1) continue;
 
-	return { protocolPlusDomain: raw.slice(0, pathStart), pathname: raw.slice(pathStart) };
+		return { protocolPlusDomain: line.slice(0, pathStart), pathname: line.slice(pathStart) };
+	}
+
+	return undefined;
 }
 
 export function getDomainBase(raw: string): string {
