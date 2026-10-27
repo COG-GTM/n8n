@@ -19,6 +19,7 @@ import {
 	resolveRawData,
 	isFormConnected,
 	sanitizeHtml,
+	sanitizeRedirectUrl,
 	validateResponseModeConfiguration,
 	prepareFormFields,
 	addFormResponseDataToReturnItem,
@@ -46,6 +47,26 @@ describe('FormTrigger, parseFormDescription', () => {
 		descriptions.forEach(({ description, expected }) => {
 			expect(createDescriptionMetadata(description)).toBe(expected);
 		});
+	});
+});
+
+describe('FormTrigger, sanitizeRedirectUrl', () => {
+	it.each([
+		['https://example.com/thanks', 'https://example.com/thanks'],
+		['http://example.com', 'http://example.com'],
+		['example.com/thanks', 'http://example.com/thanks'],
+	])('should allow %s', (input, expected) => {
+		expect(sanitizeRedirectUrl(input)).toBe(expected);
+	});
+
+	it.each([
+		'javascript://%0aalert(1)',
+		'javascript:alert(1)',
+		'ftp://example.com',
+		'',
+		undefined,
+	])('should reject %p', (input) => {
+		expect(sanitizeRedirectUrl(input)).toBeUndefined();
 	});
 });
 
@@ -771,6 +792,31 @@ describe('FormTrigger, prepareFormData', () => {
 		});
 
 		expect(result.redirectUrl).toBe('http://example.com/thank-you');
+	});
+
+	it.each([
+		'javascript://%0aalert(document.domain)',
+		'JAVASCRIPT://%0aalert(1)',
+		' javascript://%0aalert(1)',
+		'data://text/html,<script>alert(1)</script>',
+	])('should drop redirectUrl with unsafe scheme %s', (redirectUrl) => {
+		const result = prepareFormData({
+			formTitle: 'Test Form',
+			formDescription: 'This is a test form',
+			formSubmittedText: undefined,
+			redirectUrl,
+			formFields: [
+				{
+					fieldLabel: 'Name',
+					fieldType: 'text',
+					requiredField: true,
+				},
+			],
+			testRun: true,
+			query: {},
+		});
+
+		expect(result.redirectUrl).toBeUndefined();
 	});
 
 	it('should return invalid form data when formFields are empty', () => {

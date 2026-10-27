@@ -25,6 +25,27 @@ import { validateWebhookAuthentication } from '../../Webhook/utils';
 import { FORM_TRIGGER_AUTHENTICATION_PROPERTY } from '../interfaces';
 import type { FormTriggerData, FormField } from '../interfaces';
 
+const SAFE_REDIRECT_PROTOCOLS = new Set(['http:', 'https:']);
+
+/**
+ * Returns the redirect URL (with `http://` added when no scheme is given) only when it resolves
+ * to an http(s) URL; other schemes such as `javascript:` yield `undefined`.
+ */
+export function sanitizeRedirectUrl(redirectUrl: unknown): string | undefined {
+	if (typeof redirectUrl !== 'string') return undefined;
+
+	const trimmed = redirectUrl.trim();
+	if (!trimmed) return undefined;
+
+	const candidate = /^[a-z][a-z\d+.-]*:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+
+	try {
+		return SAFE_REDIRECT_PROTOCOLS.has(new URL(candidate).protocol) ? candidate : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
 export function sanitizeHtml(text: string) {
 	return sanitize(text, {
 		allowedTags: [
@@ -188,11 +209,9 @@ export function prepareFormData({
 		dangerousCustomCss: sanitizeCustomCss(customCss),
 	};
 
-	if (redirectUrl) {
-		if (!redirectUrl.includes('://')) {
-			redirectUrl = `http://${redirectUrl}`;
-		}
-		formData.redirectUrl = redirectUrl;
+	const safeRedirectUrl = sanitizeRedirectUrl(redirectUrl);
+	if (safeRedirectUrl) {
+		formData.redirectUrl = safeRedirectUrl;
 	}
 
 	for (const [index, field] of formFields.entries()) {

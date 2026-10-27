@@ -158,6 +158,17 @@
 			<a id='redirectUrl' href='{{redirectUrl}}' style='display: none;'></a>
 		{{/if}}
 	<script>
+		const getSafeRedirectUrl = (value) => {
+			if (typeof value !== 'string' || !value.trim()) return null;
+			const candidate = /^[a-z][a-z\d+.-]*:\/\//i.test(value.trim()) ? value.trim() : 'https://' + value.trim();
+			try {
+				const parsed = new URL(candidate);
+				return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.href : null;
+			} catch (e) {
+				return null;
+			}
+		};
+
 		let interval = 1000;
 		let timeoutId;
 		const checkExecutionStatus = async () => {
@@ -216,9 +227,11 @@
 			})
 			.then(async function (response) {
 					if (response.status === 200) {
-						const redirectUrl = document.getElementById("redirectUrl");
+						const redirectUrl = getSafeRedirectUrl(
+							document.getElementById("redirectUrl")?.getAttribute('href'),
+						);
 						if (redirectUrl) {
-							window.location.replace(redirectUrl.href);
+							window.location.replace(redirectUrl);
 						}
 					}
 
@@ -229,10 +242,8 @@
 							json = JSON.parse(text);
 					} catch (e) {}
 
-					if (json?.redirectURL) {
-							const url = json.redirectURL.includes("://")
-									? json.redirectURL
-									: "https://" + json.redirectURL;
+					const url = getSafeRedirectUrl(json?.redirectURL);
+					if (url) {
 							window.location.replace(url);
 					}
 			})

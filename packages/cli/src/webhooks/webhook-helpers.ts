@@ -213,6 +213,28 @@ export function autoDetectResponseMode(
 	return undefined;
 }
 
+const SAFE_FORM_REDIRECT_PROTOCOLS = new Set(['http:', 'https:']);
+
+/**
+ * Normalizes a form redirect target the same way the form page does (adding `https://` when no
+ * scheme is given) and only returns it when it resolves to an http(s) URL, so values such as
+ * `javascript://...` never reach `window.location.replace()` on the form page.
+ */
+export const sanitizeFormRedirectUrl = (redirectUrl: unknown): string | undefined => {
+	if (typeof redirectUrl !== 'string') return undefined;
+
+	const trimmed = redirectUrl.trim();
+	if (!trimmed) return undefined;
+
+	const candidate = /^[a-z][a-z\d+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+
+	try {
+		return SAFE_FORM_REDIRECT_PROTOCOLS.has(new URL(candidate).protocol) ? candidate : undefined;
+	} catch {
+		return undefined;
+	}
+};
+
 /**
  * for formTrigger and form nodes redirection has to be handled by sending redirectURL in response body
  */
@@ -224,16 +246,27 @@ export const handleFormRedirectionCase = (
 		return data;
 	}
 
-	if (
-		[FORM_NODE_TYPE, FORM_TRIGGER_NODE_TYPE, WAIT_NODE_TYPE].includes(workflowStartNode.type) &&
-		(data?.headers as IDataObject)?.location &&
-		String(data?.responseCode).startsWith('3')
-	) {
+	if (![FORM_NODE_TYPE, FORM_TRIGGER_NODE_TYPE, WAIT_NODE_TYPE].includes(workflowStartNode.type)) {
+		return data;
+	}
+
+	if ((data?.headers as IDataObject)?.location && String(data?.responseCode).startsWith('3')) {
+		const redirectURL = sanitizeFormRedirectUrl((data.headers as IDataObject).location);
 		data.responseCode = 200;
-		data.data = {
-			redirectURL: (data?.headers as IDataObject)?.location,
-		};
+		data.data = redirectURL ? { redirectURL } : undefined;
 		(data.headers as IDataObject).location = undefined;
+	} else if (
+		data?.data &&
+		typeof data.data === 'object' &&
+		!Array.isArray(data.data) &&
+		'redirectURL' in data.data
+	) {
+		const redirectURL = sanitizeFormRedirectUrl(data.data.redirectURL);
+		if (redirectURL) {
+			data.data.redirectURL = redirectURL;
+		} else {
+			delete data.data.redirectURL;
+		}
 	}
 
 	return data;
