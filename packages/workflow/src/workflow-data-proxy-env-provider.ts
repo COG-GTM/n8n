@@ -17,8 +17,8 @@ export function isEnvAccessBlockedByConfig(): boolean {
 	return process.env[ENV_ACCESS_SETTING]?.trim().toLowerCase() !== 'false';
 }
 
-const N8N_OWNED_ENV_PREFIX = /^(N8N_|DB_|QUEUE_BULL_REDIS_|CREDENTIALS_OVERWRITE_)/;
-const SENSITIVE_ENV_NAME = /(PASS|SECRET|TOKEN|_KEY$|_CERT|_CA$|CREDENTIALS_OVERWRITE_DATA$)/;
+const N8N_OWNED_ENV_PREFIX = /^(N8N_|DB_|QUEUE_BULL_REDIS_)/;
+const SENSITIVE_ENV_NAME = /(PASS|SECRET|TOKEN|_KEY$|_CERT|_CA$)/;
 
 /**
  * Whether an env var holds one of n8n's own secrets (encryption key, DB and
@@ -28,6 +28,7 @@ const SENSITIVE_ENV_NAME = /(PASS|SECRET|TOKEN|_KEY$|_CERT|_CA$|CREDENTIALS_OVER
  */
 export function isSensitiveEnvVar(name: string): boolean {
 	const normalized = name.toUpperCase().replace(/_FILE$/, '');
+	if (normalized.startsWith('CREDENTIALS_OVERWRITE_')) return true;
 	return N8N_OWNED_ENV_PREFIX.test(normalized) && SENSITIVE_ENV_NAME.test(normalized);
 }
 
