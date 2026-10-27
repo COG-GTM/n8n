@@ -1,4 +1,6 @@
 /* eslint-disable n8n-nodes-base/node-execute-block-wrong-error-thrown */
+import { GlobalConfig } from '@n8n/config';
+import { Container } from '@n8n/di';
 import { createWriteStream } from 'fs';
 import { rm, stat } from 'fs/promises';
 import isbot from 'isbot';
@@ -12,6 +14,7 @@ import type {
 	INodeProperties,
 } from 'n8n-workflow';
 import { BINARY_ENCODING, NodeOperationError, Node } from 'n8n-workflow';
+import { Transform } from 'stream';
 import { pipeline } from 'stream/promises';
 import { file as tmpFile } from 'tmp-promise';
 import { v4 as uuid } from 'uuid';
@@ -29,7 +32,7 @@ import {
 	responseModeProperty,
 	responseModePropertyStreaming,
 } from './description';
-import { WebhookAuthorizationError } from './error';
+import { BinaryPayloadTooLargeError, WebhookAuthorizationError } from './error';
 import {
 	checkResponseModeConfiguration,
 	configuredOutputs,
@@ -380,11 +383,23 @@ export class Webhook extends Node {
 		const req = context.getRequestObject();
 		const options = context.getNodeParameter('options', {}) as IDataObject;
 
+		const maxSizeMiB = Container.get(GlobalConfig).endpoints.formDataFileSizeMax;
+
 		// TODO: create empty binaryData placeholder, stream into that path, and then finalize the binaryData
 		const binaryFile = await tmpFile({ prefix: 'n8n-webhook-' });
 
 		try {
-			await pipeline(req, createWriteStream(binaryFile.path));
+			try {
+				await writeRequestToFile(req, binaryFile.path, maxSizeMiB * 1024 * 1024);
+			} catch (error) {
+				if (!(error instanceof BinaryPayloadTooLargeError)) throw error;
+				const res = context.getResponseObject();
+				if (!res.headersSent) {
+					res.writeHead(413, { Connection: 'close', 'Content-Type': 'text/plain' });
+					res.end(`Request body exceeds the maximum allowed size of ${maxSizeMiB} MiB`);
+				}
+				return { noWebhookResponse: true };
+			}
 
 			const returnItem: INodeExecutionData = {
 				json: {
@@ -413,5 +428,44 @@ export class Webhook extends Node {
 		} finally {
 			await binaryFile.cleanup();
 		}
+	}
+}
+
+/**
+ * Streams the request body into a file, failing with `BinaryPayloadTooLargeError` once more than
+ * `maxBytes` have been received. The request is unpiped rather than destroyed, so that a 413
+ * response can still be sent on the same connection.
+ */
+async function writeRequestToFile(
+	req: ReturnType<IWebhookFunctions['getRequestObject']>,
+	filePath: string,
+	maxBytes: number,
+) {
+	let receivedBytes = 0;
+	const limiter = new Transform({
+		transform(chunk: Buffer, _encoding, callback) {
+			receivedBytes += chunk.length;
+			if (receivedBytes > maxBytes) {
+				callback(new BinaryPayloadTooLargeError());
+			} else {
+				callback(null, chunk);
+			}
+		},
+	});
+
+	const onRequestError = (error: Error) => limiter.destroy(error);
+	const onRequestClose = () => {
+		if (!req.readableEnded) limiter.destroy(new Error('Request was aborted'));
+	};
+	req.once('error', onRequestError);
+	req.once('close', onRequestClose);
+	req.pipe(limiter);
+
+	try {
+		await pipeline(limiter, createWriteStream(filePath));
+	} finally {
+		req.unpipe(limiter);
+		req.off('error', onRequestError);
+		req.off('close', onRequestClose);
 	}
 }

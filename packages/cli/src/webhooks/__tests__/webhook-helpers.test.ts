@@ -32,8 +32,11 @@ import {
 	prepareExecutionData,
 	handleHostedChatResponse,
 	_privateGetWebhookErrorMessage,
+	parseRequestBody,
 } from '../webhook-helpers';
-import type { IWebhookResponseCallbackData } from '../webhook.types';
+import type { IWebhookResponseCallbackData, WebhookRequest } from '../webhook.types';
+
+import { ContentTooLargeError } from '@/errors/response-errors/content-too-large.error';
 
 jest.mock('stream/promises', () => ({
 	finished: jest.fn(),
@@ -467,3 +470,52 @@ describe('getWebhookErrorMessage', () => {
 		);
 	});
 });
+
+describe('parseRequestBody', () => {
+	const MiB = 1024 * 1024;
+	const formDataFileSizeMaxBytes = 200 * MiB;
+	const workflow = mock<Workflow>({ expression: mock() });
+
+	const createRequest = (contentType: string, contentLength?: number) =>
+		mock<WebhookRequest>({
+			contentType,
+			headers: contentLength === undefined ? {} : { 'content-length': String(contentLength) },
+			body: undefined,
+		});
+
+	const parse = async (req: WebhookRequest, typeVersion: number) =>
+		await parseRequestBody(req, mock<INode>({ typeVersion }), workflow, 'webhook', {});
+
+	it('should reject a non-parsed body whose Content-Length exceeds the binary upload limit', async () => {
+		const req = createRequest('application/octet-stream', formDataFileSizeMaxBytes + 1);
+
+		await expect(parse(req, 2)).rejects.toThrow(ContentTooLargeError);
+	});
+
+	it('should allow a non-parsed body within the binary upload limit', async () => {
+		const req = createRequest('application/octet-stream', formDataFileSizeMaxBytes);
+
+		await expect(parse(req, 2)).resolves.toBeUndefined();
+		expect(req.body).toBeUndefined();
+	});
+
+	it('should allow a non-parsed body without Content-Length (limited while streaming)', async () => {
+		const req = createRequest('application/octet-stream');
+
+		await expect(parse(req, 2)).resolves.toBeUndefined();
+	});
+
+	it('should reject an oversized body for v1 nodes with the binaryData option enabled', async () => {
+		jest.mocked(workflow.expression.getSimpleParameterValue).mockReturnValueOnce(true);
+		const req = createRequest('application/json', formDataFileSizeMaxBytes + 1);
+
+		await expect(parse(req, 1)).rejects.toThrow(ContentTooLargeError);
+	});
+
+	it('should return a 413 error', async () => {
+		const req = createRequest('image/png', formDataFileSizeMaxBytes * 2);
+
+		await expect(parse(req, 2)).rejects.toMatchObject({ httpStatusCode: 413 });
+	});
+});
+

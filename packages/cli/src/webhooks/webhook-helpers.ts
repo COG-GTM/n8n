@@ -54,6 +54,7 @@ import type {
 
 import { ActiveExecutions } from '@/active-executions';
 import { MCP_TRIGGER_NODE_TYPE } from '@/constants';
+import { ContentTooLargeError } from '@/errors/response-errors/content-too-large.error';
 import { InternalServerError } from '@/errors/response-errors/internal-server.error';
 import { NotFoundError } from '@/errors/response-errors/not-found.error';
 import { UnprocessableRequestError } from '@/errors/response-errors/unprocessable.error';
@@ -241,6 +242,19 @@ export const handleFormRedirectionCase = (
 
 const { formDataFileSizeMax } = Container.get(GlobalConfig).endpoints;
 const parseFormData = createMultiFormDataParser(formDataFileSizeMax);
+
+/**
+ * Bodies that are not pre-parsed are streamed by the node itself (e.g. binary webhook uploads),
+ * so reject them early when the declared size is already above the binary upload limit.
+ */
+function assertUnparsedBodyWithinLimit(req: WebhookRequest) {
+	const contentLength = Number(req.headers['content-length']);
+	if (Number.isFinite(contentLength) && contentLength > formDataFileSizeMax * 1024 * 1024) {
+		throw new ContentTooLargeError(
+			`Request body exceeds the maximum allowed size of ${formDataFileSizeMax} MiB`,
+		);
+	}
+}
 
 export function setupResponseNodePromise(
 	responsePromise: IDeferredPromise<IN8nHttpFullResponse>,
@@ -762,7 +776,7 @@ export async function executeWebhook(
 		return executionId;
 	} catch (e) {
 		const error =
-			e instanceof UnprocessableRequestError
+			e instanceof UnprocessableRequestError || e instanceof ContentTooLargeError
 				? e
 				: new OperationalError('There was a problem executing the workflow', {
 						cause: e,
@@ -829,7 +843,7 @@ function evaluateResponseOptions(
  * Parses the request body (form, xml, json, form-urlencoded, etc.) if needed
  * into the `req.body` property.
  */
-async function parseRequestBody(
+export async function parseRequestBody(
 	req: WebhookRequest,
 	workflowStartNode: INode,
 	workflow: Workflow,
@@ -854,6 +868,7 @@ async function parseRequestBody(
 	// if `Webhook` or `Wait` node, and binaryData is enabled, skip pre-parse the request-body
 	// always falsy for versions higher than 1
 	if (binaryData) {
+		assertUnparsedBodyWithinLimit(req);
 		return;
 	}
 
@@ -870,6 +885,8 @@ async function parseRequestBody(
 				contentType?.endsWith('+xml')
 			) {
 				await parseBody(req);
+			} else {
+				assertUnparsedBodyWithinLimit(req);
 			}
 		} else {
 			await parseBody(req);
