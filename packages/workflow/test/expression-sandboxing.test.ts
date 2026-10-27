@@ -260,6 +260,12 @@ describe('PrototypeSanitizer', () => {
 				expect(
 					tournament.execute('{{ (() => { const s = Symbol("s"); return { [s]: 4 }[s] })() }}', data),
 				).toBe(4);
+				expect(
+					tournament.execute(
+						'{{ (() => { const s = Symbol("s"); return { [s]: 5 }[{ [Symbol.toPrimitive]: () => s }] })() }}',
+						data,
+					),
+				).toBe(5);
 			});
 		});
 

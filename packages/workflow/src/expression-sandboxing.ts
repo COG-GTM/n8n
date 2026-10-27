@@ -143,6 +143,8 @@ const assertSafeSandboxProperty = (property: string) => {
 
 type LiteralLike = { type: string; value?: unknown };
 
+type ExpressionNode = Parameters<typeof b.expressionStatement>[0];
+
 const isStringLiteral = (node: LiteralLike): node is { type: string; value: string } =>
 	node.type === 'StringLiteral' || (node.type === 'Literal' && typeof node.value === 'string');
 
@@ -150,15 +152,12 @@ const isNumericLiteral = (node: LiteralLike) =>
 	node.type === 'NumericLiteral' || (node.type === 'Literal' && typeof node.value === 'number');
 
 export const PrototypeSanitizer: ASTAfterHook = (ast, dataNode) => {
-	const wrapInSanitizer = <T>(node: T) =>
-		b.callExpression(b.memberExpression(dataNode, sanitizerIdentifier), [
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-argument
-			node as any,
-		]);
+	const wrapInSanitizer = (node: ExpressionNode) =>
+		b.callExpression(b.memberExpression(dataNode, sanitizerIdentifier), [node]);
 
 	const sanitizeMemberExpression = (node: {
 		computed?: boolean | null;
-		property: LiteralLike & { name?: unknown };
+		property: ExpressionNode;
 	}) => {
 		if (!node.computed) {
 			// This is static, so we're safe to error here
@@ -209,13 +208,21 @@ export const PrototypeSanitizer: ASTAfterHook = (ast, dataNode) => {
 				} else if (isStringLiteral(key)) {
 					assertSafeSandboxProperty(key.value);
 				} else if (!isNumericLiteral(key)) {
-					// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-explicit-any
-					property.key = wrapInSanitizer(key) as any;
+					property.key = wrapInSanitizer(property.key);
 				}
 			}
 		},
 	});
 };
+
+/**
+ * Coerces a value to a property key exactly like a property access would (ToPropertyKey),
+ * including objects whose `toString` / `Symbol.toPrimitive` return a symbol.
+ */
+const propertyKeyResolver = new Proxy<Record<PropertyKey, string | symbol>>(
+	{},
+	{ get: (_target, key) => key },
+);
 
 /**
  * Runtime check for computed property keys. The key is coerced exactly once, the same way
@@ -224,7 +231,8 @@ export const PrototypeSanitizer: ASTAfterHook = (ast, dataNode) => {
  * the check and being turned into a forbidden name afterwards.
  */
 export const sanitizer = (value: unknown): string | symbol => {
-	const key = typeof value === 'symbol' ? value : String(value);
+	// Any value is a valid computed key at runtime; the proxy performs the coercion
+	const key = propertyKeyResolver[value as PropertyKey];
 	if (typeof key === 'string') {
 		assertSafeSandboxProperty(key);
 	}
