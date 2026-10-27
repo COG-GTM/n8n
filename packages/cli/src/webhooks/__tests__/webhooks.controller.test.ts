@@ -118,15 +118,13 @@ describe('WebhooksController', () => {
 			expect(workflowFinderService.findWorkflowForUser).not.toHaveBeenCalled();
 		});
 
-		it('returns null without metadata when the access check throws', async () => {
+		it('surfaces access-check failures instead of reporting no conflict', async () => {
 			webhookService.findWebhook.mockResolvedValue(webhook);
 			workflowFinderService.findWorkflowForUser.mockRejectedValue(new Error('db down'));
 
-			const result = await controller.findWebhook(
-				makeRequest({ path: 'finance-export', method: 'POST' }),
-			);
-
-			expect(result).toBeNull();
+			await expect(
+				controller.findWebhook(makeRequest({ path: 'finance-export', method: 'POST' })),
+			).rejects.toThrow('db down');
 		});
 	});
 });

@@ -30,26 +30,30 @@ export class WebhooksController {
 		const { path, method } = req.body ?? {};
 		if (typeof path !== 'string' || !isWebhookMethod(method)) return null;
 
+		let webhook;
 		try {
-			const webhook = await this.webhookService.findWebhook(method, path);
-			if (!webhook) return null;
-
-			const workflow = await this.workflowFinderService.findWorkflowForUser(
-				webhook.workflowId,
-				req.user,
-				['workflow:read'],
-			);
-
-			if (!workflow) return { webhookPath: path, method: webhook.method };
-
-			return {
-				workflowId: webhook.workflowId,
-				webhookPath: webhook.webhookPath,
-				method: webhook.method,
-				node: webhook.node,
-			};
+			webhook = await this.webhookService.findWebhook(method, path);
 		} catch {
 			return null;
 		}
+
+		if (!webhook) return null;
+
+		// Access-check failures propagate as request errors: returning `null` would
+		// hide the conflict, and returning metadata would bypass authorization.
+		const workflow = await this.workflowFinderService.findWorkflowForUser(
+			webhook.workflowId,
+			req.user,
+			['workflow:read'],
+		);
+
+		if (!workflow) return { webhookPath: path, method: webhook.method };
+
+		return {
+			workflowId: webhook.workflowId,
+			webhookPath: webhook.webhookPath,
+			method: webhook.method,
+			node: webhook.node,
+		};
 	}
 }
