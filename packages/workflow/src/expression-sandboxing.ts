@@ -1,7 +1,16 @@
-import { type ASTAfterHook, astBuilders as b, astVisit } from '@n8n/tournament';
+import { type ASTAfterHook, type ASTBeforeHook, astBuilders as b, astVisit } from '@n8n/tournament';
 
 import { ExpressionError } from './errors';
 import { isSafeObjectProperty } from './utils';
+
+/**
+ * Properties that grant access to module loading or native bindings once a
+ * `process`-like object is reachable. Blocked only inside expressions.
+ */
+const unsafeExpressionProperties = new Set(['mainModule', '_load', '_linkedBinding', 'dlopen']);
+
+const isSafeExpressionProperty = (property: string) =>
+	isSafeObjectProperty(property) && !unsafeExpressionProperties.has(property);
 
 export const sanitizerName = '__sanitize';
 const sanitizerIdentifier = b.identifier(sanitizerName);
@@ -118,6 +127,55 @@ export const DollarSignValidator: ASTAfterHook = (ast, _dataNode) => {
 	});
 };
 
+const createEmptyContext = () =>
+	b.objectExpression([b.property('init', b.identifier('process'), b.objectExpression([]))]);
+
+/**
+ * `(function () { return this; })()` evaluates to the real global object in
+ * sloppy mode (and to `undefined` inside strict code, hence the `typeof` guard).
+ */
+const createGlobalObjectReference = () =>
+	b.callExpression(
+		b.functionExpression(null, [], b.blockStatement([b.returnStatement(b.thisExpression())])),
+		[],
+	);
+
+/**
+ * Prevents user code from reaching the real global object through `this`.
+ *
+ * Expressions are compiled in sloppy mode, so a non-arrow function invoked
+ * without a receiver (`(function () { return this })()`, `fn.call(undefined)`,
+ * a detached method, a nested function declaration, ...) gets `globalThis` as
+ * `this`, which exposes the unrestricted `process` object.
+ *
+ * Every user-written `this` is rewritten to
+ * `(typeof this === 'object' && this === (function () { return this; })() ? { process: {} } : this)`
+ * so that the global object is replaced by an inert object while ordinary
+ * receivers (e.g. object methods) are left untouched.
+ */
+export const ThisSanitizer: ASTBeforeHook = (ast) => {
+	astVisit(ast, {
+		visitThisExpression(path) {
+			path.replace(
+				b.conditionalExpression(
+					b.logicalExpression(
+						'&&',
+						b.binaryExpression(
+							'===',
+							b.unaryExpression('typeof', b.thisExpression()),
+							b.literal('object'),
+						),
+						b.binaryExpression('===', b.thisExpression(), createGlobalObjectReference()),
+					),
+					createEmptyContext(),
+					b.thisExpression(),
+				),
+			);
+			return false;
+		},
+	});
+};
+
 export const PrototypeSanitizer: ASTAfterHook = (ast, dataNode) => {
 	astVisit(ast, {
 		visitMemberExpression(path) {
@@ -131,14 +189,14 @@ export const PrototypeSanitizer: ASTAfterHook = (ast, dataNode) => {
 					);
 				}
 
-				if (!isSafeObjectProperty(node.property.name)) {
+				if (!isSafeExpressionProperty(node.property.name)) {
 					throw new ExpressionError(
 						`Cannot access "${node.property.name}" due to security concerns`,
 					);
 				}
 			} else if (node.property.type === 'StringLiteral' || node.property.type === 'Literal') {
 				// Check any static strings against our forbidden list
-				if (!isSafeObjectProperty(node.property.value as string)) {
+				if (!isSafeExpressionProperty(node.property.value as string)) {
 					throw new ExpressionError(
 						`Cannot access "${node.property.value as string}" due to security concerns`,
 					);
@@ -163,7 +221,7 @@ export const PrototypeSanitizer: ASTAfterHook = (ast, dataNode) => {
 };
 
 export const sanitizer = (value: unknown): unknown => {
-	if (!isSafeObjectProperty(value as string)) {
+	if (!isSafeExpressionProperty(value as string)) {
 		throw new ExpressionError(`Cannot access "${value as string}" due to security concerns`);
 	}
 	return value;
