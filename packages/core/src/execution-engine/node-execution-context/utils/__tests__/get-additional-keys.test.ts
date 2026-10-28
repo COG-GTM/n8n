@@ -139,4 +139,15 @@ describe('getAdditionalKeys', () => {
 		const allData = customData?.getAll() ?? {};
 		expect(Object.keys(allData)).toHaveLength(10);
 	});
+
+	it('should include the waiting execution token in resume urls', () => {
+		const result = getAdditionalKeys(
+			{ ...additionalData, getWaitingExecutionToken: (id: string) => `token${id}` },
+			'manual',
+			null,
+		);
+
+		expect(result.$execution?.resumeUrl).toBe('https://webhook.test/123-token123');
+		expect(result.$execution?.resumeFormUrl).toBe('https://form.test/123-token123');
+	});
 });

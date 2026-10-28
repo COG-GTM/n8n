@@ -1,15 +1,27 @@
 import type { IExecutionResponse, ExecutionRepository } from '@n8n/db';
 import type express from 'express';
 import { mock } from 'jest-mock-extended';
+import type { InstanceSettings } from 'n8n-core';
+import { generateWaitingExecutionToken } from 'n8n-core';
 import { FORM_NODE_TYPE, WAITING_FORMS_EXECUTION_STATUS, type Workflow } from 'n8n-workflow';
 
+import { NotFoundError } from '@/errors/response-errors/not-found.error';
 import { WaitingForms } from '@/webhooks/waiting-forms';
 
 import type { WaitingWebhookRequest } from '../webhook.types';
 
 describe('WaitingForms', () => {
+	const SIGNING_SECRET = 'test-secret';
 	const executionRepository = mock<ExecutionRepository>();
-	const waitingForms = new WaitingForms(mock(), mock(), executionRepository, mock(), mock());
+	const waitingForms = new WaitingForms(
+		mock(),
+		mock(),
+		executionRepository,
+		mock(),
+		mock<InstanceSettings>({ hmacSignatureSecret: SIGNING_SECRET }),
+	);
+	const authorizedPath = (executionId: string) =>
+		`${executionId}-${generateWaitingExecutionToken(executionId, SIGNING_SECRET)}`;
 
 	beforeEach(() => {
 		jest.restoreAllMocks();
@@ -208,7 +220,7 @@ describe('WaitingForms', () => {
 			const req = mock<WaitingWebhookRequest>({
 				headers: {},
 				params: {
-					path: '123',
+					path: authorizedPath('123'),
 					suffix: WAITING_FORMS_EXECUTION_STATUS,
 				},
 			});
@@ -218,7 +230,50 @@ describe('WaitingForms', () => {
 			const result = await waitingForms.executeWebhook(req, res);
 
 			expect(result).toEqual({ noWebhookResponse: true });
+			expect(executionRepository.findSingleExecution).toHaveBeenCalledWith(
+				'123',
+				expect.anything(),
+			);
 			expect(res.send).toHaveBeenCalledWith(execution.status);
+		});
+
+		it.each([
+			['without a token', '123'],
+			['with an invalid token', '123-invalid'],
+			['with the token of another execution', authorizedPath('124').replace('124', '123')],
+		])(
+			'should return 404 for the execution status %s without loading the execution',
+			async (_, path) => {
+				executionRepository.findSingleExecution.mockClear();
+				const req = mock<WaitingWebhookRequest>({
+					headers: {},
+					url: `/form-waiting/${path}/${WAITING_FORMS_EXECUTION_STATUS}`,
+					query: {},
+					params: { path, suffix: WAITING_FORMS_EXECUTION_STATUS },
+				});
+				const res = mock<express.Response>();
+
+				await expect(waitingForms.executeWebhook(req, res)).rejects.toThrowError(NotFoundError);
+
+				expect(executionRepository.findSingleExecution).not.toHaveBeenCalled();
+				expect(res.send).not.toHaveBeenCalled();
+			},
+		);
+
+		it('should return 404 for a form page without a token', async () => {
+			executionRepository.findSingleExecution.mockClear();
+			const req = mock<WaitingWebhookRequest>({
+				headers: {},
+				url: '/form-waiting/123',
+				query: {},
+				params: { path: '123' },
+			});
+			const res = mock<express.Response>();
+
+			await expect(waitingForms.executeWebhook(req, res)).rejects.toThrowError(NotFoundError);
+
+			expect(executionRepository.findSingleExecution).not.toHaveBeenCalled();
+			expect(res.render).not.toHaveBeenCalled();
 		});
 	});
 });

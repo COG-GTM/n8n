@@ -71,7 +71,8 @@ export class WaitingForms extends WaitingWebhooks {
 		req: WaitingWebhookRequest,
 		res: express.Response,
 	): Promise<IWebhookResponseCallbackData> {
-		const { path: executionId, suffix } = req.params;
+		const { suffix } = req.params;
+		const executionId = this.authorizeRequest(req);
 
 		this.logReceivedWebhook(req.method, executionId);
 

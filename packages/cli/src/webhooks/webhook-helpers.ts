@@ -6,10 +6,10 @@
 
 import { Logger } from '@n8n/backend-common';
 import { GlobalConfig } from '@n8n/config';
-import type { Project } from '@n8n/db';
+import { ExecutionRepository, type Project } from '@n8n/db';
 import { Container } from '@n8n/di';
 import type express from 'express';
-import { BinaryDataService, ErrorReporter } from 'n8n-core';
+import { BinaryDataService, buildWaitingExecutionPath, ErrorReporter } from 'n8n-core';
 import type {
 	IBinaryData,
 	IDataObject,
@@ -54,6 +54,7 @@ import type {
 
 import { ActiveExecutions } from '@/active-executions';
 import { MCP_TRIGGER_NODE_TYPE } from '@/constants';
+import { ConflictError } from '@/errors/response-errors/conflict.error';
 import { InternalServerError } from '@/errors/response-errors/internal-server.error';
 import { NotFoundError } from '@/errors/response-errors/not-found.error';
 import { UnprocessableRequestError } from '@/errors/response-errors/unprocessable.error';
@@ -562,6 +563,14 @@ export async function executeWebhook(
 			return;
 		}
 
+		if (executionId !== undefined) {
+			const isClaimed =
+				await Container.get(ExecutionRepository).setRunningIfWaiting(executionId);
+			if (!isClaimed) {
+				throw new ConflictError(`The execution "${executionId}" is running already.`);
+			}
+		}
+
 		// Now that we know that the workflow should run we can return the default response
 		// directly if responseMode it set to "onReceived" and a response should be sent
 		if (responseMode === 'onReceived' && !didSendResponse) {
@@ -632,7 +641,11 @@ export async function executeWebhook(
 		);
 
 		if (responseMode === 'formPage' && !didSendResponse) {
-			res.send({ formWaitingUrl: `${additionalData.formWaitingBaseUrl}/${executionId}` });
+			const waitingPath = buildWaitingExecutionPath(
+				executionId,
+				additionalData.getWaitingExecutionToken?.(executionId),
+			);
+			res.send({ formWaitingUrl: `${additionalData.formWaitingBaseUrl}/${waitingPath}` });
 			process.nextTick(() => res.end());
 			didSendResponse = true;
 		}

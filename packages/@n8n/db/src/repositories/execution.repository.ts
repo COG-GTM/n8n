@@ -420,6 +420,21 @@ export class ExecutionRepository extends Repository<ExecutionEntity> {
 		return startedAt;
 	}
 
+	/**
+	 * Atomically move a waiting execution to `running`, so that concurrent
+	 * resume requests cannot resume the same execution more than once.
+	 *
+	 * @returns `true` if this caller claimed the execution
+	 */
+	async setRunningIfWaiting(executionId: string) {
+		const result = await this.update(
+			{ id: executionId, status: 'waiting' },
+			{ status: 'running', waitTill: null },
+		);
+
+		return result.affected === 1;
+	}
+
 	async updateExistingExecution(executionId: string, execution: Partial<IExecutionResponse>) {
 		const {
 			id,

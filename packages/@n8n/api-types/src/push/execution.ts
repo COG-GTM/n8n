@@ -16,6 +16,8 @@ export type ExecutionStarted = {
 		workflowName?: string;
 		retryOf?: string;
 		flattedRunData: string;
+		/** Authorizes the waiting-webhook/form URLs of this execution */
+		waitingExecutionToken?: string;
 	};
 };
 

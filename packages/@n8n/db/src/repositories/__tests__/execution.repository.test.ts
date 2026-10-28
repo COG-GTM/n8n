@@ -406,4 +406,27 @@ describe('ExecutionRepository', () => {
 			expect(result.data.resultData.error?.message).toBe('The execution was cancelled manually');
 		});
 	});
+
+	describe('setRunningIfWaiting', () => {
+		it('should only update the execution if it is waiting', async () => {
+			entityManager.update.mockResolvedValueOnce({ affected: 1, raw: [], generatedMaps: [] });
+
+			const result = await executionRepository.setRunningIfWaiting('1');
+
+			expect(result).toBe(true);
+			expect(entityManager.update).toHaveBeenCalledWith(
+				ExecutionEntity,
+				{ id: '1', status: 'waiting' },
+				{ status: 'running', waitTill: null },
+			);
+		});
+
+		it('should return false if the execution was not waiting anymore', async () => {
+			entityManager.update.mockResolvedValueOnce({ affected: 0, raw: [], generatedMaps: [] });
+
+			const result = await executionRepository.setRunningIfWaiting('1');
+
+			expect(result).toBe(false);
+		});
+	});
 });

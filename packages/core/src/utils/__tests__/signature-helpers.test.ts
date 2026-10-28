@@ -1,4 +1,10 @@
-import { generateUrlSignature } from '../signature-helpers';
+import {
+	buildWaitingExecutionPath,
+	generateUrlSignature,
+	generateWaitingExecutionToken,
+	isValidWaitingExecutionToken,
+	parseWaitingExecutionPath,
+} from '../signature-helpers';
 
 describe('signature-helpers', () => {
 	const secret = 'test-secret';
@@ -21,6 +27,36 @@ describe('signature-helpers', () => {
 			const url = `${baseUrl}/webhook/abc`;
 			const token = generateUrlSignature(url, 'different-secret');
 			expect(token).toBe('84a99b6950e12ffcf1fcf8e0fc0986c0c8a46df331932efd79b17e0c11801bd2');
+		});
+	});
+
+	describe('waiting execution token', () => {
+		it('should generate a token that depends on the execution id and secret', () => {
+			const token = generateWaitingExecutionToken('1', secret);
+			expect(token).toMatch(/^[a-f0-9]{64}$/);
+			expect(generateWaitingExecutionToken('2', secret)).not.toBe(token);
+			expect(generateWaitingExecutionToken('1', 'different-secret')).not.toBe(token);
+		});
+
+		it('should build and parse the waiting path', () => {
+			const token = generateWaitingExecutionToken('42', secret);
+			const path = buildWaitingExecutionPath('42', token);
+			expect(path).toBe(`42-${token}`);
+			expect(parseWaitingExecutionPath(path)).toEqual({ executionId: '42', token });
+		});
+
+		it('should parse a path without a token', () => {
+			expect(buildWaitingExecutionPath('42')).toBe('42');
+			expect(parseWaitingExecutionPath('42')).toEqual({ executionId: '42' });
+		});
+
+		it('should only accept the token of the same execution', () => {
+			const token = generateWaitingExecutionToken('1', secret);
+			expect(isValidWaitingExecutionToken('1', token, secret)).toBe(true);
+			expect(isValidWaitingExecutionToken('2', token, secret)).toBe(false);
+			expect(isValidWaitingExecutionToken('1', undefined, secret)).toBe(false);
+			expect(isValidWaitingExecutionToken('1', '', secret)).toBe(false);
+			expect(isValidWaitingExecutionToken('1', 'abc', secret)).toBe(false);
 		});
 	});
 });

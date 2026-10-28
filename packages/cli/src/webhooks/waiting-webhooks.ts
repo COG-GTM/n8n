@@ -9,6 +9,8 @@ import {
 	WAITING_TOKEN_QUERY_PARAM,
 	prepareUrlForSigning,
 	generateUrlSignature,
+	isValidWaitingExecutionToken,
+	parseWaitingExecutionPath,
 } from 'n8n-core';
 import {
 	FORM_NODE_TYPE,
@@ -115,11 +117,32 @@ export class WaitingWebhooks implements IWebhookManager {
 		}
 	}
 
+	/**
+	 * Resume URLs are only valid with the per-execution token in the path
+	 * (`/<executionId>-<token>`) or with a signed URL (Send and Wait).
+	 * Unauthorized requests get the same 404 as unknown executions, so ids
+	 * cannot be enumerated.
+	 */
+	protected authorizeRequest(req: WaitingWebhookRequest) {
+		const { executionId, token } = parseWaitingExecutionPath(req.params.path);
+
+		const isAuthorized =
+			isValidWaitingExecutionToken(executionId, token, this.instanceSettings.hmacSignatureSecret) ||
+			this.validateSignatureInRequest(req);
+
+		if (!isAuthorized) {
+			throw new NotFoundError(`The execution "${executionId}" does not exist.`);
+		}
+
+		return executionId;
+	}
+
 	async executeWebhook(
 		req: WaitingWebhookRequest,
 		res: express.Response,
 	): Promise<IWebhookResponseCallbackData> {
-		const { path: executionId, suffix } = req.params;
+		const { suffix } = req.params;
+		const executionId = this.authorizeRequest(req);
 
 		this.logReceivedWebhook(req.method, executionId);
 
