@@ -42,6 +42,7 @@ vi.mock('@n8n/stores/useRootStore', () => ({
 vi.mock('@/app/stores/workflows.store', () => ({
 	useWorkflowsStore: () => ({
 		activeExecutionId: '123',
+		getWaitingExecutionPath: (executionId: string) => executionId,
 	}),
 }));
 
