@@ -110,6 +110,7 @@ import { CreateWorkflowDependencyTable1760314000000 } from '../common/1760314000
 import { DropUnusedChatHubColumns1760965142113 } from '../common/1760965142113-DropUnusedChatHubColumns';
 import { AddWorkflowDescriptionColumn1762177736257 } from '../common/1762177736257-AddWorkflowDescriptionColumn';
 import type { Migration } from '../migration-types';
+import { AddExecutionStartedOrCreatedAtIndex1763700000000 } from './1763700000000-AddExecutionStartedOrCreatedAtIndex';
 
 export const postgresMigrations: Migration[] = [
 	InitialMigration1587669153312,
@@ -223,4 +224,5 @@ export const postgresMigrations: Migration[] = [
 	ChangeDependencyInfoToJson1761655473000,
 	AddWorkflowDescriptionColumn1762177736257,
 	CreateOAuthEntities1760116750277,
+	AddExecutionStartedOrCreatedAtIndex1763700000000,
 ];
